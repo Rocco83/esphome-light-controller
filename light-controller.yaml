@@ -1,0 +1,428 @@
+esphome:
+  name: light-controller
+  friendly_name: "Centralina Luci"
+  # Automatically add MAC suffix to the name to avoid conflicts
+  name_add_mac_suffix: true
+
+esp32:
+  board: esp32dev
+
+# -------------------------------------------------------------------------
+# SNIPPETS INTEGRATION
+# -------------------------------------------------------------------------
+
+# Enable logging via UART
+logger:
+
+# Default HA integration, OTA updater and backup http web portal
+api:
+  # Security note: Consider adding password: !secret device_password
+  # 5m default delay. if no home assistant, then force reboot. 
+  # Set to 0s to disable reboot on connection loss.
+  reboot_timeout: 0s
+
+ota:
+  - platform: esphome
+    # Security note: Consider adding password: !secret device_password
+
+wifi:
+  # Read the wifi/pass from secrets.yaml and support 2 SSID
+  networks:
+  - ssid: !secret wifi_1_ssid
+    password: !secret wifi_1_password
+  - ssid: !secret wifi_2_ssid
+    password: !secret wifi_2_password
+
+# Web server for local diagnostics
+web_server:
+  port: 80
+  version: 3
+
+# -------------------------------------------------------------------------
+# I2C BUS CONFIGURATION
+# -------------------------------------------------------------------------
+i2c:
+  sda: GPIO21
+  scl: GPIO22
+  scan: true
+  # High frequency for better responsiveness
+  frequency: 400kHz
+
+# -------------------------------------------------------------------------
+# MCP23017 EXPANDERS CONFIGURATION
+# -------------------------------------------------------------------------
+mcp23017:
+  # --- FLOOR P0 (Ground Floor) ---
+  
+  # P0 Output Module (Relays) - Address 0x20
+  - id: mcp_p0_out
+    address: 0x20
+
+  # P0 Input Module (Feedback/State) - Address 0x21
+  - id: mcp_p0_in
+    address: 0x21
+    # Interrupt pin connecting INTA/INTB to ESP32 (Required for real-time updates)
+    int_pin: GPIO19
+
+  # --- FLOOR P1 (First Floor) ---
+
+  # P1 Output Module (Relays) - Address 0x22
+  - id: mcp_p1_out
+    address: 0x22
+
+  # P1 Input Module (Feedback/State) - Address 0x23
+  - id: mcp_p1_in
+    address: 0x23
+    # Sharing the same interrupt pin as P0 (Wired-OR configuration)
+    int_pin: GPIO19
+
+# -------------------------------------------------------------------------
+# OUTPUTS DEFINITION
+# -------------------------------------------------------------------------
+output:
+  # =======================================================================
+  # FLOOR P0 - PHYSICAL RELAY PINS (Direct mapping to MCP pins)
+  # =======================================================================
+  - { platform: gpio, id: p0_relay_01, pin: { mcp23017: mcp_p0_out, number: 0 } }
+  - { platform: gpio, id: p0_relay_02, pin: { mcp23017: mcp_p0_out, number: 1 } }
+  - { platform: gpio, id: p0_relay_03, pin: { mcp23017: mcp_p0_out, number: 2 } }
+  - { platform: gpio, id: p0_relay_04, pin: { mcp23017: mcp_p0_out, number: 3 } }
+  - { platform: gpio, id: p0_relay_05, pin: { mcp23017: mcp_p0_out, number: 4 } }
+  - { platform: gpio, id: p0_relay_06, pin: { mcp23017: mcp_p0_out, number: 5 } }
+  - { platform: gpio, id: p0_relay_07, pin: { mcp23017: mcp_p0_out, number: 6 } }
+  - { platform: gpio, id: p0_relay_08, pin: { mcp23017: mcp_p0_out, number: 7 } }
+  - { platform: gpio, id: p0_relay_09, pin: { mcp23017: mcp_p0_out, number: 8 } }
+  - { platform: gpio, id: p0_relay_10, pin: { mcp23017: mcp_p0_out, number: 9 } }
+  - { platform: gpio, id: p0_relay_11, pin: { mcp23017: mcp_p0_out, number: 10 } }
+  - { platform: gpio, id: p0_relay_12, pin: { mcp23017: mcp_p0_out, number: 11 } }
+
+  # =======================================================================
+  # FLOOR P1 - PHYSICAL RELAY PINS (Direct mapping to MCP pins)
+  # =======================================================================
+  - { platform: gpio, id: p1_relay_01, pin: { mcp23017: mcp_p1_out, number: 0 } }
+  - { platform: gpio, id: p1_relay_02, pin: { mcp23017: mcp_p1_out, number: 1 } }
+  - { platform: gpio, id: p1_relay_03, pin: { mcp23017: mcp_p1_out, number: 2 } }
+  - { platform: gpio, id: p1_relay_04, pin: { mcp23017: mcp_p1_out, number: 3 } }
+  - { platform: gpio, id: p1_relay_05, pin: { mcp23017: mcp_p1_out, number: 4 } }
+  - { platform: gpio, id: p1_relay_06, pin: { mcp23017: mcp_p1_out, number: 5 } }
+  - { platform: gpio, id: p1_relay_07, pin: { mcp23017: mcp_p1_out, number: 6 } }
+  - { platform: gpio, id: p1_relay_08, pin: { mcp23017: mcp_p1_out, number: 7 } }
+  - { platform: gpio, id: p1_relay_09, pin: { mcp23017: mcp_p1_out, number: 8 } }
+  - { platform: gpio, id: p1_relay_10, pin: { mcp23017: mcp_p1_out, number: 9 } }
+  - { platform: gpio, id: p1_relay_11, pin: { mcp23017: mcp_p1_out, number: 10 } }
+  - { platform: gpio, id: p1_relay_12, pin: { mcp23017: mcp_p1_out, number: 11 } }
+  - { platform: gpio, id: p1_relay_13, pin: { mcp23017: mcp_p1_out, number: 12 } }
+  - { platform: gpio, id: p1_relay_14, pin: { mcp23017: mcp_p1_out, number: 13 } }
+  - { platform: gpio, id: p1_relay_15, pin: { mcp23017: mcp_p1_out, number: 14 } }
+
+  # =======================================================================
+  # LOGIC TEMPLATES (PULSE GENERATORS)
+  # These outputs handle the 0.5s pulse logic. They check the real state
+  # before firing the relay to avoid sync issues.
+  # =======================================================================
+  
+  # --- P0 Templates ---
+  - platform: template
+    id: p0_logic_01
+    type: binary
+    write_action:
+      - if:
+          condition: { lambda: 'return x != id(p0_state_01).state;' }
+          then: [output.turn_on: p0_relay_01, delay: 500ms, output.turn_off: p0_relay_01]
+
+  - platform: template
+    id: p0_logic_02
+    type: binary
+    write_action:
+      - if: { condition: { lambda: 'return x != id(p0_state_02).state;' }, then: [output.turn_on: p0_relay_02, delay: 500ms, output.turn_off: p0_relay_02] }
+  
+  # (Compressed format for brevity - follow the same pattern for all)
+  - platform: template
+    id: p0_logic_03
+    type: binary
+    write_action: [{ if: { condition: { lambda: 'return x != id(p0_state_03).state;' }, then: [output.turn_on: p0_relay_03, delay: 500ms, output.turn_off: p0_relay_03] } }]
+  - platform: template
+    id: p0_logic_04
+    type: binary
+    write_action: [{ if: { condition: { lambda: 'return x != id(p0_state_04).state;' }, then: [output.turn_on: p0_relay_04, delay: 500ms, output.turn_off: p0_relay_04] } }]
+  - platform: template
+    id: p0_logic_05
+    type: binary
+    write_action: [{ if: { condition: { lambda: 'return x != id(p0_state_05).state;' }, then: [output.turn_on: p0_relay_05, delay: 500ms, output.turn_off: p0_relay_05] } }]
+  - platform: template
+    id: p0_logic_06
+    type: binary
+    write_action: [{ if: { condition: { lambda: 'return x != id(p0_state_06).state;' }, then: [output.turn_on: p0_relay_06, delay: 500ms, output.turn_off: p0_relay_06] } }]
+  - platform: template
+    id: p0_logic_07
+    type: binary
+    write_action: [{ if: { condition: { lambda: 'return x != id(p0_state_07).state;' }, then: [output.turn_on: p0_relay_07, delay: 500ms, output.turn_off: p0_relay_07] } }]
+  - platform: template
+    id: p0_logic_08
+    type: binary
+    write_action: [{ if: { condition: { lambda: 'return x != id(p0_state_08).state;' }, then: [output.turn_on: p0_relay_08, delay: 500ms, output.turn_off: p0_relay_08] } }]
+  - platform: template
+    id: p0_logic_09
+    type: binary
+    write_action: [{ if: { condition: { lambda: 'return x != id(p0_state_09).state;' }, then: [output.turn_on: p0_relay_09, delay: 500ms, output.turn_off: p0_relay_09] } }]
+  - platform: template
+    id: p0_logic_10
+    type: binary
+    write_action: [{ if: { condition: { lambda: 'return x != id(p0_state_10).state;' }, then: [output.turn_on: p0_relay_10, delay: 500ms, output.turn_off: p0_relay_10] } }]
+  - platform: template
+    id: p0_logic_11
+    type: binary
+    write_action: [{ if: { condition: { lambda: 'return x != id(p0_state_11).state;' }, then: [output.turn_on: p0_relay_11, delay: 500ms, output.turn_off: p0_relay_11] } }]
+  - platform: template
+    id: p0_logic_12
+    type: binary
+    write_action: [{ if: { condition: { lambda: 'return x != id(p0_state_12).state;' }, then: [output.turn_on: p0_relay_12, delay: 500ms, output.turn_off: p0_relay_12] } }]
+
+  # --- P1 Templates ---
+  - platform: template
+    id: p1_logic_01
+    type: binary
+    write_action: [{ if: { condition: { lambda: 'return x != id(p1_state_01).state;' }, then: [output.turn_on: p1_relay_01, delay: 500ms, output.turn_off: p1_relay_01] } }]
+  - platform: template
+    id: p1_logic_02
+    type: binary
+    write_action: [{ if: { condition: { lambda: 'return x != id(p1_state_02).state;' }, then: [output.turn_on: p1_relay_02, delay: 500ms, output.turn_off: p1_relay_02] } }]
+  - platform: template
+    id: p1_logic_03
+    type: binary
+    write_action: [{ if: { condition: { lambda: 'return x != id(p1_state_03).state;' }, then: [output.turn_on: p1_relay_03, delay: 500ms, output.turn_off: p1_relay_03] } }]
+  - platform: template
+    id: p1_logic_04
+    type: binary
+    write_action: [{ if: { condition: { lambda: 'return x != id(p1_state_04).state;' }, then: [output.turn_on: p1_relay_04, delay: 500ms, output.turn_off: p1_relay_04] } }]
+  - platform: template
+    id: p1_logic_05
+    type: binary
+    write_action: [{ if: { condition: { lambda: 'return x != id(p1_state_05).state;' }, then: [output.turn_on: p1_relay_05, delay: 500ms, output.turn_off: p1_relay_05] } }]
+  - platform: template
+    id: p1_logic_06
+    type: binary
+    write_action: [{ if: { condition: { lambda: 'return x != id(p1_state_06).state;' }, then: [output.turn_on: p1_relay_06, delay: 500ms, output.turn_off: p1_relay_06] } }]
+  - platform: template
+    id: p1_logic_07
+    type: binary
+    write_action: [{ if: { condition: { lambda: 'return x != id(p1_state_07).state;' }, then: [output.turn_on: p1_relay_07, delay: 500ms, output.turn_off: p1_relay_07] } }]
+  - platform: template
+    id: p1_logic_08
+    type: binary
+    write_action: [{ if: { condition: { lambda: 'return x != id(p1_state_08).state;' }, then: [output.turn_on: p1_relay_08, delay: 500ms, output.turn_off: p1_relay_08] } }]
+  - platform: template
+    id: p1_logic_09
+    type: binary
+    write_action: [{ if: { condition: { lambda: 'return x != id(p1_state_09).state;' }, then: [output.turn_on: p1_relay_09, delay: 500ms, output.turn_off: p1_relay_09] } }]
+  - platform: template
+    id: p1_logic_10
+    type: binary
+    write_action: [{ if: { condition: { lambda: 'return x != id(p1_state_10).state;' }, then: [output.turn_on: p1_relay_10, delay: 500ms, output.turn_off: p1_relay_10] } }]
+  - platform: template
+    id: p1_logic_11
+    type: binary
+    write_action: [{ if: { condition: { lambda: 'return x != id(p1_state_11).state;' }, then: [output.turn_on: p1_relay_11, delay: 500ms, output.turn_off: p1_relay_11] } }]
+  - platform: template
+    id: p1_logic_12
+    type: binary
+    write_action: [{ if: { condition: { lambda: 'return x != id(p1_state_12).state;' }, then: [output.turn_on: p1_relay_12, delay: 500ms, output.turn_off: p1_relay_12] } }]
+  - platform: template
+    id: p1_logic_13
+    type: binary
+    write_action: [{ if: { condition: { lambda: 'return x != id(p1_state_13).state;' }, then: [output.turn_on: p1_relay_13, delay: 500ms, output.turn_off: p1_relay_13] } }]
+  - platform: template
+    id: p1_logic_14
+    type: binary
+    write_action: [{ if: { condition: { lambda: 'return x != id(p1_state_14).state;' }, then: [output.turn_on: p1_relay_14, delay: 500ms, output.turn_off: p1_relay_14] } }]
+  - platform: template
+    id: p1_logic_15
+    type: binary
+    write_action: [{ if: { condition: { lambda: 'return x != id(p1_state_15).state;' }, then: [output.turn_on: p1_relay_15, delay: 500ms, output.turn_off: p1_relay_15] } }]
+
+# -------------------------------------------------------------------------
+# BINARY SENSORS (FEEDBACK) & SYNC LOGIC
+# -------------------------------------------------------------------------
+binary_sensor:
+  # =======================================================================
+  # FLOOR P0 - SENSORS
+  # =======================================================================
+  - platform: gpio
+    id: p0_state_01
+    pin: { mcp23017: mcp_p0_in, number: 0, mode: INPUT_PULLUP }
+    on_state:
+      then: # Synchronize HA light entity with real state
+        - if: { condition: { binary_sensor.is_on: p0_state_01 }, then: [light.turn_on: light_p0_01], else: [light.turn_off: light_p0_01] }
+
+  - platform: gpio
+    id: p0_state_02
+    pin: { mcp23017: mcp_p0_in, number: 1, mode: INPUT_PULLUP }
+    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p0_state_02 }, then: [light.turn_on: light_p0_02], else: [light.turn_off: light_p0_02] } }] }
+
+  - platform: gpio
+    id: p0_state_03
+    pin: { mcp23017: mcp_p0_in, number: 2, mode: INPUT_PULLUP }
+    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p0_state_03 }, then: [light.turn_on: light_p0_03], else: [light.turn_off: light_p0_03] } }] }
+
+  - platform: gpio
+    id: p0_state_04
+    pin: { mcp23017: mcp_p0_in, number: 3, mode: INPUT_PULLUP }
+    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p0_state_04 }, then: [light.turn_on: light_p0_04], else: [light.turn_off: light_p0_04] } }] }
+
+  - platform: gpio
+    id: p0_state_05
+    pin: { mcp23017: mcp_p0_in, number: 4, mode: INPUT_PULLUP }
+    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p0_state_05 }, then: [light.turn_on: light_p0_05], else: [light.turn_off: light_p0_05] } }] }
+
+  - platform: gpio
+    id: p0_state_06
+    pin: { mcp23017: mcp_p0_in, number: 5, mode: INPUT_PULLUP }
+    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p0_state_06 }, then: [light.turn_on: light_p0_06], else: [light.turn_off: light_p0_06] } }] }
+
+  - platform: gpio
+    id: p0_state_07
+    pin: { mcp23017: mcp_p0_in, number: 6, mode: INPUT_PULLUP }
+    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p0_state_07 }, then: [light.turn_on: light_p0_07], else: [light.turn_off: light_p0_07] } }] }
+
+  - platform: gpio
+    id: p0_state_08
+    pin: { mcp23017: mcp_p0_in, number: 7, mode: INPUT_PULLUP }
+    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p0_state_08 }, then: [light.turn_on: light_p0_08], else: [light.turn_off: light_p0_08] } }] }
+
+  - platform: gpio
+    id: p0_state_09
+    pin: { mcp23017: mcp_p0_in, number: 8, mode: INPUT_PULLUP }
+    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p0_state_09 }, then: [light.turn_on: light_p0_09], else: [light.turn_off: light_p0_09] } }] }
+
+  - platform: gpio
+    id: p0_state_10
+    pin: { mcp23017: mcp_p0_in, number: 9, mode: INPUT_PULLUP }
+    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p0_state_10 }, then: [light.turn_on: light_p0_10], else: [light.turn_off: light_p0_10] } }] }
+
+  - platform: gpio
+    id: p0_state_11
+    pin: { mcp23017: mcp_p0_in, number: 10, mode: INPUT_PULLUP }
+    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p0_state_11 }, then: [light.turn_on: light_p0_11], else: [light.turn_off: light_p0_11] } }] }
+
+  - platform: gpio
+    id: p0_state_12
+    pin: { mcp23017: mcp_p0_in, number: 11, mode: INPUT_PULLUP }
+    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p0_state_12 }, then: [light.turn_on: light_p0_12], else: [light.turn_off: light_p0_12] } }] }
+
+  # =======================================================================
+  # FLOOR P1 - SENSORS
+  # =======================================================================
+  - platform: gpio
+    id: p1_state_01
+    pin: { mcp23017: mcp_p1_in, number: 0, mode: INPUT_PULLUP }
+    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p1_state_01 }, then: [light.turn_on: light_p1_01], else: [light.turn_off: light_p1_01] } }] }
+
+  - platform: gpio
+    id: p1_state_02
+    pin: { mcp23017: mcp_p1_in, number: 1, mode: INPUT_PULLUP }
+    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p1_state_02 }, then: [light.turn_on: light_p1_02], else: [light.turn_off: light_p1_02] } }] }
+
+  - platform: gpio
+    id: p1_state_03
+    pin: { mcp23017: mcp_p1_in, number: 2, mode: INPUT_PULLUP }
+    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p1_state_03 }, then: [light.turn_on: light_p1_03], else: [light.turn_off: light_p1_03] } }] }
+
+  - platform: gpio
+    id: p1_state_04
+    pin: { mcp23017: mcp_p1_in, number: 3, mode: INPUT_PULLUP }
+    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p1_state_04 }, then: [light.turn_on: light_p1_04], else: [light.turn_off: light_p1_04] } }] }
+
+  - platform: gpio
+    id: p1_state_05
+    pin: { mcp23017: mcp_p1_in, number: 4, mode: INPUT_PULLUP }
+    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p1_state_05 }, then: [light.turn_on: light_p1_05], else: [light.turn_off: light_p1_05] } }] }
+
+  - platform: gpio
+    id: p1_state_06
+    pin: { mcp23017: mcp_p1_in, number: 5, mode: INPUT_PULLUP }
+    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p1_state_06 }, then: [light.turn_on: light_p1_06], else: [light.turn_off: light_p1_06] } }] }
+
+  - platform: gpio
+    id: p1_state_07
+    pin: { mcp23017: mcp_p1_in, number: 6, mode: INPUT_PULLUP }
+    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p1_state_07 }, then: [light.turn_on: light_p1_07], else: [light.turn_off: light_p1_07] } }] }
+
+  - platform: gpio
+    id: p1_state_08
+    pin: { mcp23017: mcp_p1_in, number: 7, mode: INPUT_PULLUP }
+    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p1_state_08 }, then: [light.turn_on: light_p1_08], else: [light.turn_off: light_p1_08] } }] }
+
+  - platform: gpio
+    id: p1_state_09
+    pin: { mcp23017: mcp_p1_in, number: 8, mode: INPUT_PULLUP }
+    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p1_state_09 }, then: [light.turn_on: light_p1_09], else: [light.turn_off: light_p1_09] } }] }
+
+  - platform: gpio
+    id: p1_state_10
+    pin: { mcp23017: mcp_p1_in, number: 9, mode: INPUT_PULLUP }
+    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p1_state_10 }, then: [light.turn_on: light_p1_10], else: [light.turn_off: light_p1_10] } }] }
+
+  - platform: gpio
+    id: p1_state_11
+    pin: { mcp23017: mcp_p1_in, number: 10, mode: INPUT_PULLUP }
+    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p1_state_11 }, then: [light.turn_on: light_p1_11], else: [light.turn_off: light_p1_11] } }] }
+
+  - platform: gpio
+    id: p1_state_12
+    pin: { mcp23017: mcp_p1_in, number: 11, mode: INPUT_PULLUP }
+    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p1_state_12 }, then: [light.turn_on: light_p1_12], else: [light.turn_off: light_p1_12] } }] }
+
+  - platform: gpio
+    id: p1_state_13
+    pin: { mcp23017: mcp_p1_in, number: 12, mode: INPUT_PULLUP }
+    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p1_state_13 }, then: [light.turn_on: light_p1_13], else: [light.turn_off: light_p1_13] } }] }
+
+  - platform: gpio
+    id: p1_state_14
+    pin: { mcp23017: mcp_p1_in, number: 13, mode: INPUT_PULLUP }
+    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p1_state_14 }, then: [light.turn_on: light_p1_14], else: [light.turn_off: light_p1_14] } }] }
+
+  - platform: gpio
+    id: p1_state_15
+    pin: { mcp23017: mcp_p1_in, number: 14, mode: INPUT_PULLUP }
+    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p1_state_15 }, then: [light.turn_on: light_p1_15], else: [light.turn_off: light_p1_15] } }] }
+
+
+# -------------------------------------------------------------------------
+# LIGHT ENTITIES (HOME ASSISTANT)
+# -------------------------------------------------------------------------
+light:
+  # =======================================================================
+  # FLOOR P0 LIGHTS (12 Items)
+  # =======================================================================
+  - { platform: binary, name: "Garage Plafoniera",       id: light_p0_01, output: p0_logic_01 }
+  - { platform: binary, name: "Corridoio Scale P0",      id: light_p0_02, output: p0_logic_02 }
+  - { platform: binary, name: "Bagno P0 Plafoniera",     id: light_p0_03, output: p0_logic_03 }
+  - { platform: binary, name: "Sala Presa Comandata",    id: light_p0_04, output: p0_logic_04 }
+  - { platform: binary, name: "Cucina Sottopensile",     id: light_p0_05, output: p0_logic_05 }
+  - { platform: binary, name: "Cucina Plafoniera",       id: light_p0_06, output: p0_logic_06 }
+  - { platform: binary, name: "Cucina Controsoffitto",   id: light_p0_07, output: p0_logic_07 }
+  - { platform: binary, name: "Sala LED Finestre",       id: light_p0_08, output: p0_logic_08 }
+  - { platform: binary, name: "Sala LED Centrali",       id: light_p0_09, output: p0_logic_09 }
+  - { platform: binary, name: "Bagno P0 Specchio",       id: light_p0_10, output: p0_logic_10 }
+  - { platform: binary, name: "Sottoscala",              id: light_p0_11, output: p0_logic_11 }
+  - { platform: binary, name: "Garage Scaffali",         id: light_p0_12, output: p0_logic_12 }
+
+  # =======================================================================
+  # FLOOR P1 LIGHTS (15 Items)
+  # =======================================================================
+  - { platform: binary, name: "Ufficio Presa Comandata", id: light_p1_01, output: p1_logic_01 }
+  - { platform: binary, name: "Ufficio Plafoniera",      id: light_p1_02, output: p1_logic_02 }
+  - { platform: binary, name: "Bagno P1 Plafoniera",     id: light_p1_03, output: p1_logic_03 }
+  - { platform: binary, name: "Matrimoniale Plafoniera", id: light_p1_04, output: p1_logic_04 }
+  - { platform: binary, name: "Matrimoniale Presa",      id: light_p1_05, output: p1_logic_05 }
+  - { platform: binary, name: "Bimbi Plafoniera",        id: light_p1_06, output: p1_logic_06 }
+  - { platform: binary, name: "Bimbi Presa Comandata",   id: light_p1_07, output: p1_logic_07 }
+  - { platform: binary, name: "Scale P1",                id: light_p1_08, output: p1_logic_08 }
+  - { platform: binary, name: "Corridoio P1",            id: light_p1_09, output: p1_logic_09 }
+  - { platform: binary, name: "Bagno P1 Specchio",       id: light_p1_10, output: p1_logic_10 }
+  - { platform: binary, name: "Ufficio Notturna",        id: light_p1_11, output: p1_logic_11 }
+  - { platform: binary, name: "Armadi",                  id: light_p1_12, output: p1_logic_12 }
+  - { platform: binary, name: "Stireria Plafoniere",     id: light_p1_13, output: p1_logic_13 }
+  - { platform: binary, name: "Stireria LED",            id: light_p1_14, output: p1_logic_14 }
+  - { platform: binary, name: "Sottotetto Sala Server",  id: light_p1_15, output: p1_logic_15 }

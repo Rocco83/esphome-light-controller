@@ -1,0 +1,45 @@
+# KinderLight RGB - .gitignore
+
+# Editor
+*.bak
+*.tmp
+*.swp
+*.swo
+*.swn
+
+# OS
+.DS_Store
+Thumbs.db
+ehthumbs.db
+
+# KiCad
+*.backup
+*.kicad_prl
+*.kicad_wks
+*.kicad_sch-bak
+*-cache.lib
+*-rescue.kicad_sch
+*-rescue.*
+*-bak.kicad_pcb
+*-bak.kicad_sch
+
+# Output
+/gerbers_front/
+/gerbers_rear/
+/build/
+/dist/
+
+# Other temporary files
+*.zip
+*.tar.gz
+*.7z
+
+# standard files to not version
+*.log
+*.aux
+*.out
+*.toc
+
+# files with passwords
+# secrets is also in the firmware directory
+secrets.yaml
