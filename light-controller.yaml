@@ -3,9 +3,41 @@ esphome:
   friendly_name: "Centralina Luci"
   # Automatically add MAC suffix to the name to avoid conflicts
   name_add_mac_suffix: true
+  # Abilita gli interrupt hardware sui chip MCP all'avvio
+  on_boot:
+    priority: 600 # Esegui dopo l'inizializzazione I2C
+    then:
+      - lambda: |-
+          // --- CONFIGURAZIONE REGISTRI MCP23017 ---
+          // Registri (BANK=0): GPINTENA=0x04, GPINTENB=0x05, IOCON=0x0A
+
+          // Configura HUB P0 Input (0x21)
+          // 0xFF = Abilita interrupt su tutti gli 8 pin della porta
+          id(mcp_p0_in).write_byte(0x04, 0xFF); // GPINTENA
+          id(mcp_p0_in).write_byte(0x05, 0xFF); // GPINTENB
+          // 0x42 = Bit 6 (MIRROR): Unisce INTA e INTB
+          //        Bit 1 (INTPOL): Active Low (Default)
+          id(mcp_p0_in).write_byte(0x0A, 0x42); // IOCON
+
+          // Configura HUB P1 Input (0x23)
+          id(mcp_p1_in).write_byte(0x04, 0xFF); // GPINTENA
+          id(mcp_p1_in).write_byte(0x05, 0xFF); // GPINTENB
+          id(mcp_p1_in).write_byte(0x0A, 0x42); // IOCON
+
 
 esp32:
-  board: esp32dev
+  board: esp32-poe-iso
+  framework:
+    type: esp-idf
+
+ethernet:
+  type: LAN8720
+  mdc_pin: GPIO23
+  mdio_pin: GPIO18
+  clk:
+    pin: GPIO17
+    mode: CLK_OUT # This replaces the deprecated GPIO17_OUT
+  phy_addr: 0
 
 # -------------------------------------------------------------------------
 # SNIPPETS INTEGRATION
@@ -17,7 +49,7 @@ logger:
 # Default HA integration, OTA updater and backup http web portal
 api:
   # Security note: Consider adding password: !secret device_password
-  # 5m default delay. if no home assistant, then force reboot. 
+  # 5m default delay. if no home assistant, then force reboot.
   # Set to 0s to disable reboot on connection loss.
   reboot_timeout: 0s
 
@@ -25,13 +57,13 @@ ota:
   - platform: esphome
     # Security note: Consider adding password: !secret device_password
 
-wifi:
-  # Read the wifi/pass from secrets.yaml and support 2 SSID
-  networks:
-  - ssid: !secret wifi_1_ssid
-    password: !secret wifi_1_password
-  - ssid: !secret wifi_2_ssid
-    password: !secret wifi_2_password
+#wifi:
+#  # Read the wifi/pass from secrets.yaml and support 2 SSID
+#  networks:
+#  - ssid: !secret wifi_1_ssid
+#    password: !secret wifi_1_password
+#  - ssid: !secret wifi_2_ssid
+#    password: !secret wifi_2_password
 
 # Web server for local diagnostics
 web_server:
@@ -42,8 +74,8 @@ web_server:
 # I2C BUS CONFIGURATION
 # -------------------------------------------------------------------------
 i2c:
-  sda: GPIO21
-  scl: GPIO22
+  sda: GPIO13
+  scl: GPIO16
   scan: true
   # High frequency for better responsiveness
   frequency: 400kHz
@@ -53,28 +85,240 @@ i2c:
 # -------------------------------------------------------------------------
 mcp23017:
   # --- FLOOR P0 (Ground Floor) ---
-  
   # P0 Output Module (Relays) - Address 0x20
   - id: mcp_p0_out
     address: 0x20
-
   # P0 Input Module (Feedback/State) - Address 0x21
   - id: mcp_p0_in
     address: 0x21
-    # Interrupt pin connecting INTA/INTB to ESP32 (Required for real-time updates)
-    int_pin: GPIO19
 
   # --- FLOOR P1 (First Floor) ---
 
   # P1 Output Module (Relays) - Address 0x22
   - id: mcp_p1_out
     address: 0x22
-
   # P1 Input Module (Feedback/State) - Address 0x23
   - id: mcp_p1_in
     address: 0x23
     # Sharing the same interrupt pin as P0 (Wired-OR configuration)
-    int_pin: GPIO19
+
+# --- MANUAL POLLING ENGINE (The Core) ---
+# This component executes the lambda every 100ms.
+# It manually reads the hardware pins and pushes the state to the sensors.
+interval:
+  - interval: 100ms
+    then:
+      - lambda: |-
+          // --- FLOOR P0 INPUT READING (12 Sensors) ---
+          // Read hardware pin -> Publish state to sensor
+          id(p0_state_01).publish_state(id(mcp_p0_in).digital_read(0));
+          id(p0_state_02).publish_state(id(mcp_p0_in).digital_read(1));
+          id(p0_state_03).publish_state(id(mcp_p0_in).digital_read(2));
+          id(p0_state_04).publish_state(id(mcp_p0_in).digital_read(3));
+          id(p0_state_05).publish_state(id(mcp_p0_in).digital_read(4));
+          id(p0_state_06).publish_state(id(mcp_p0_in).digital_read(5));
+          id(p0_state_07).publish_state(id(mcp_p0_in).digital_read(6));
+          id(p0_state_08).publish_state(id(mcp_p0_in).digital_read(7));
+          id(p0_state_09).publish_state(id(mcp_p0_in).digital_read(8));
+          id(p0_state_10).publish_state(id(mcp_p0_in).digital_read(9));
+          id(p0_state_11).publish_state(id(mcp_p0_in).digital_read(10));
+          id(p0_state_12).publish_state(id(mcp_p0_in).digital_read(11));
+
+          // --- FLOOR P1 INPUT READING (15 Sensors) ---
+          id(p1_state_01).publish_state(id(mcp_p1_in).digital_read(0));
+          id(p1_state_02).publish_state(id(mcp_p1_in).digital_read(1));
+          id(p1_state_03).publish_state(id(mcp_p1_in).digital_read(2));
+          id(p1_state_04).publish_state(id(mcp_p1_in).digital_read(3));
+          id(p1_state_05).publish_state(id(mcp_p1_in).digital_read(4));
+          id(p1_state_06).publish_state(id(mcp_p1_in).digital_read(5));
+          id(p1_state_07).publish_state(id(mcp_p1_in).digital_read(6));
+          id(p1_state_08).publish_state(id(mcp_p1_in).digital_read(7));
+          id(p1_state_09).publish_state(id(mcp_p1_in).digital_read(8));
+          id(p1_state_10).publish_state(id(mcp_p1_in).digital_read(9));
+          id(p1_state_11).publish_state(id(mcp_p1_in).digital_read(10));
+          id(p1_state_12).publish_state(id(mcp_p1_in).digital_read(11));
+          id(p1_state_13).publish_state(id(mcp_p1_in).digital_read(12));
+          id(p1_state_14).publish_state(id(mcp_p1_in).digital_read(13));
+          id(p1_state_15).publish_state(id(mcp_p1_in).digital_read(14));
+
+# --- INTERRUPT WORKAROUND (The "Real-time" Trigger) ---
+# Since MCP23017 doesn't support int_pin natively, we use a GPIO
+# on the ESP32 to trigger a manual component update.
+binary_sensor:
+  - platform: gpio
+    id: irq_handler
+    pin:
+      number: GPIO1
+      mode: INPUT_PULLUP
+    internal: true
+    # Scatta quando l'MCP porta il pin a massa (Active Low)
+    filters:
+      - invert:
+    on_press:
+      then:
+        - lambda: |-
+            // When the interrupt triggers, force a read.
+            // Note: calling .update() on a single sensor triggers an I2C read for the entire bank
+            // and publishes the state for THAT specific sensor only.
+
+            // Update P0
+            id(p0_state_01).publish_state();id(p0_state_02).publish_state(); id(p0_state_03).publish_state();
+            id(p0_state_04).publish_state(); id(p0_state_05).publish_state(); id(p0_state_06).publish_state();
+            id(p0_state_07).publish_state(); id(p0_state_08).publish_state(); id(p0_state_09).publish_state();
+            id(p0_state_10).publish_state(); id(p0_state_11).publish_state(); id(p0_state_12).publish_state();
+
+            // Update P1
+            id(p1_state_01).publish_state(); id(p1_state_02).publish_state(); id(p1_state_03).publish_state();
+            id(p1_state_04).publish_state(); id(p1_state_05).publish_state(); id(p1_state_06).publish_state();
+            id(p1_state_07).publish_state(); id(p1_state_08).publish_state(); id(p1_state_09).publish_state();
+            id(p1_state_10).publish_state(); id(p1_state_11).publish_state(); id(p1_state_12).publish_state();
+            id(p1_state_13).publish_state(); id(p1_state_14).publish_state(); id(p1_state_15).publish_state();
+
+# -------------------------------------------------------------------------
+# BINARY SENSORS (FEEDBACK) & SYNC LOGIC
+# -------------------------------------------------------------------------
+  # =======================================================================
+  # FLOOR P0 - SENSORS
+  # =======================================================================
+  - platform: gpio
+    id: p0_state_01
+    pin: { mcp23xxx: mcp_p0_in, number: 0, mode: INPUT_PULLUP }
+    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p0_state_01 }, then: [light.turn_on: light_p0_01], else: [light.turn_off: light_p0_01] } }] }
+
+  - platform: gpio
+    id: p0_state_02
+    pin: { mcp23xxx: mcp_p0_in, number: 1, mode: INPUT_PULLUP }
+    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p0_state_02 }, then: [light.turn_on: light_p0_02], else: [light.turn_off: light_p0_02] } }] }
+
+  - platform: gpio
+    id: p0_state_03
+    pin: { mcp23xxx: mcp_p0_in, number: 2, mode: INPUT_PULLUP }
+    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p0_state_03 }, then: [light.turn_on: light_p0_03], else: [light.turn_off: light_p0_03] } }] }
+
+  - platform: gpio
+    id: p0_state_04
+    pin: { mcp23xxx: mcp_p0_in, number: 3, mode: INPUT_PULLUP }
+    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p0_state_04 }, then: [light.turn_on: light_p0_04], else: [light.turn_off: light_p0_04] } }] }
+
+  - platform: gpio
+    id: p0_state_05
+    pin: { mcp23xxx: mcp_p0_in, number: 4, mode: INPUT_PULLUP }
+    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p0_state_05 }, then: [light.turn_on: light_p0_05], else: [light.turn_off: light_p0_05] } }] }
+
+  - platform: gpio
+    id: p0_state_06
+    pin: { mcp23xxx: mcp_p0_in, number: 5, mode: INPUT_PULLUP }
+    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p0_state_06 }, then: [light.turn_on: light_p0_06], else: [light.turn_off: light_p0_06] } }] }
+
+  - platform: gpio
+    id: p0_state_07
+    pin: { mcp23xxx: mcp_p0_in, number: 6, mode: INPUT_PULLUP }
+    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p0_state_07 }, then: [light.turn_on: light_p0_07], else: [light.turn_off: light_p0_07] } }] }
+
+  - platform: gpio
+    id: p0_state_08
+    pin: { mcp23xxx: mcp_p0_in, number: 7, mode: INPUT_PULLUP }
+    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p0_state_08 }, then: [light.turn_on: light_p0_08], else: [light.turn_off: light_p0_08] } }] }
+
+  - platform: gpio
+    id: p0_state_09
+    pin: { mcp23xxx: mcp_p0_in, number: 8, mode: INPUT_PULLUP }
+    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p0_state_09 }, then: [light.turn_on: light_p0_09], else: [light.turn_off: light_p0_09] } }] }
+
+  - platform: gpio
+    id: p0_state_10
+    pin: { mcp23xxx: mcp_p0_in, number: 9, mode: INPUT_PULLUP }
+    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p0_state_10 }, then: [light.turn_on: light_p0_10], else: [light.turn_off: light_p0_10] } }] }
+
+  - platform: gpio
+    id: p0_state_11
+    pin: { mcp23xxx: mcp_p0_in, number: 10, mode: INPUT_PULLUP }
+    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p0_state_11 }, then: [light.turn_on: light_p0_11], else: [light.turn_off: light_p0_11] } }] }
+
+  - platform: gpio
+    id: p0_state_12
+    pin: { mcp23xxx: mcp_p0_in, number: 11, mode: INPUT_PULLUP }
+    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p0_state_12 }, then: [light.turn_on: light_p0_12], else: [light.turn_off: light_p0_12] } }] }
+
+  # =======================================================================
+  # FLOOR P1 - SENSORS
+  # =======================================================================
+  - platform: gpio
+    id: p1_state_01
+    pin: { mcp23xxx: mcp_p1_in, number: 0, mode: INPUT_PULLUP }
+    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p1_state_01 }, then: [light.turn_on: light_p1_01], else: [light.turn_off: light_p1_01] } }] }
+
+  - platform: gpio
+    id: p1_state_02
+    pin: { mcp23xxx: mcp_p1_in, number: 1, mode: INPUT_PULLUP }
+    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p1_state_02 }, then: [light.turn_on: light_p1_02], else: [light.turn_off: light_p1_02] } }] }
+
+  - platform: gpio
+    id: p1_state_03
+    pin: { mcp23xxx: mcp_p1_in, number: 2, mode: INPUT_PULLUP }
+    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p1_state_03 }, then: [light.turn_on: light_p1_03], else: [light.turn_off: light_p1_03] } }] }
+
+  - platform: gpio
+    id: p1_state_04
+    pin: { mcp23xxx: mcp_p1_in, number: 3, mode: INPUT_PULLUP }
+    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p1_state_04 }, then: [light.turn_on: light_p1_04], else: [light.turn_off: light_p1_04] } }] }
+
+  - platform: gpio
+    id: p1_state_05
+    pin: { mcp23xxx: mcp_p1_in, number: 4, mode: INPUT_PULLUP }
+    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p1_state_05 }, then: [light.turn_on: light_p1_05], else: [light.turn_off: light_p1_05] } }] }
+
+  - platform: gpio
+    id: p1_state_06
+    pin: { mcp23xxx: mcp_p1_in, number: 5, mode: INPUT_PULLUP }
+    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p1_state_06 }, then: [light.turn_on: light_p1_06], else: [light.turn_off: light_p1_06] } }] }
+
+  - platform: gpio
+    id: p1_state_07
+    pin: { mcp23xxx: mcp_p1_in, number: 6, mode: INPUT_PULLUP }
+    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p1_state_07 }, then: [light.turn_on: light_p1_07], else: [light.turn_off: light_p1_07] } }] }
+
+  - platform: gpio
+    id: p1_state_08
+    pin: { mcp23xxx: mcp_p1_in, number: 7, mode: INPUT_PULLUP }
+    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p1_state_08 }, then: [light.turn_on: light_p1_08], else: [light.turn_off: light_p1_08] } }] }
+
+  - platform: gpio
+    id: p1_state_09
+    pin: { mcp23xxx: mcp_p1_in, number: 8, mode: INPUT_PULLUP }
+    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p1_state_09 }, then: [light.turn_on: light_p1_09], else: [light.turn_off: light_p1_09] } }] }
+
+  - platform: gpio
+    id: p1_state_10
+    pin: { mcp23xxx: mcp_p1_in, number: 9, mode: INPUT_PULLUP }
+    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p1_state_10 }, then: [light.turn_on: light_p1_10], else: [light.turn_off: light_p1_10] } }] }
+
+  - platform: gpio
+    id: p1_state_11
+    pin: { mcp23xxx: mcp_p1_in, number: 10, mode: INPUT_PULLUP }
+    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p1_state_11 }, then: [light.turn_on: light_p1_11], else: [light.turn_off: light_p1_11] } }] }
+
+  - platform: gpio
+    id: p1_state_12
+    pin: { mcp23xxx: mcp_p1_in, number: 11, mode: INPUT_PULLUP }
+    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p1_state_12 }, then: [light.turn_on: light_p1_12], else: [light.turn_off: light_p1_12] } }] }
+
+  - platform: gpio
+    id: p1_state_13
+    pin: { mcp23xxx: mcp_p1_in, number: 12, mode: INPUT_PULLUP }
+    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p1_state_13 }, then: [light.turn_on: light_p1_13], else: [light.turn_off: light_p1_13] } }] }
+
+  - platform: gpio
+    id: p1_state_14
+    pin: { mcp23xxx: mcp_p1_in, number: 13, mode: INPUT_PULLUP }
+    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p1_state_14 }, then: [light.turn_on: light_p1_14], else: [light.turn_off: light_p1_14] } }] }
+
+  - platform: gpio
+    id: p1_state_15
+    pin: { mcp23xxx: mcp_p1_in, number: 14, mode: INPUT_PULLUP }
+    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p1_state_15 }, then: [light.turn_on: light_p1_15], else: [light.turn_off: light_p1_15] } }] }
+
+
 
 # -------------------------------------------------------------------------
 # OUTPUTS DEFINITION
@@ -83,59 +327,57 @@ output:
   # =======================================================================
   # FLOOR P0 - PHYSICAL RELAY PINS (Direct mapping to MCP pins)
   # =======================================================================
-  - { platform: gpio, id: p0_relay_01, pin: { mcp23017: mcp_p0_out, number: 0 } }
-  - { platform: gpio, id: p0_relay_02, pin: { mcp23017: mcp_p0_out, number: 1 } }
-  - { platform: gpio, id: p0_relay_03, pin: { mcp23017: mcp_p0_out, number: 2 } }
-  - { platform: gpio, id: p0_relay_04, pin: { mcp23017: mcp_p0_out, number: 3 } }
-  - { platform: gpio, id: p0_relay_05, pin: { mcp23017: mcp_p0_out, number: 4 } }
-  - { platform: gpio, id: p0_relay_06, pin: { mcp23017: mcp_p0_out, number: 5 } }
-  - { platform: gpio, id: p0_relay_07, pin: { mcp23017: mcp_p0_out, number: 6 } }
-  - { platform: gpio, id: p0_relay_08, pin: { mcp23017: mcp_p0_out, number: 7 } }
-  - { platform: gpio, id: p0_relay_09, pin: { mcp23017: mcp_p0_out, number: 8 } }
-  - { platform: gpio, id: p0_relay_10, pin: { mcp23017: mcp_p0_out, number: 9 } }
-  - { platform: gpio, id: p0_relay_11, pin: { mcp23017: mcp_p0_out, number: 10 } }
-  - { platform: gpio, id: p0_relay_12, pin: { mcp23017: mcp_p0_out, number: 11 } }
+  - { platform: gpio, id: p0_relay_01, pin: { mcp23xxx: mcp_p0_out, number: 0 } }
+  - { platform: gpio, id: p0_relay_02, pin: { mcp23xxx: mcp_p0_out, number: 1 } }
+  - { platform: gpio, id: p0_relay_03, pin: { mcp23xxx: mcp_p0_out, number: 2 } }
+  - { platform: gpio, id: p0_relay_04, pin: { mcp23xxx: mcp_p0_out, number: 3 } }
+  - { platform: gpio, id: p0_relay_05, pin: { mcp23xxx: mcp_p0_out, number: 4 } }
+  - { platform: gpio, id: p0_relay_06, pin: { mcp23xxx: mcp_p0_out, number: 5 } }
+  - { platform: gpio, id: p0_relay_07, pin: { mcp23xxx: mcp_p0_out, number: 6 } }
+  - { platform: gpio, id: p0_relay_08, pin: { mcp23xxx: mcp_p0_out, number: 7 } }
+  - { platform: gpio, id: p0_relay_09, pin: { mcp23xxx: mcp_p0_out, number: 8 } }
+  - { platform: gpio, id: p0_relay_10, pin: { mcp23xxx: mcp_p0_out, number: 9 } }
+  - { platform: gpio, id: p0_relay_11, pin: { mcp23xxx: mcp_p0_out, number: 10 } }
+  - { platform: gpio, id: p0_relay_12, pin: { mcp23xxx: mcp_p0_out, number: 11 } }
 
   # =======================================================================
   # FLOOR P1 - PHYSICAL RELAY PINS (Direct mapping to MCP pins)
   # =======================================================================
-  - { platform: gpio, id: p1_relay_01, pin: { mcp23017: mcp_p1_out, number: 0 } }
-  - { platform: gpio, id: p1_relay_02, pin: { mcp23017: mcp_p1_out, number: 1 } }
-  - { platform: gpio, id: p1_relay_03, pin: { mcp23017: mcp_p1_out, number: 2 } }
-  - { platform: gpio, id: p1_relay_04, pin: { mcp23017: mcp_p1_out, number: 3 } }
-  - { platform: gpio, id: p1_relay_05, pin: { mcp23017: mcp_p1_out, number: 4 } }
-  - { platform: gpio, id: p1_relay_06, pin: { mcp23017: mcp_p1_out, number: 5 } }
-  - { platform: gpio, id: p1_relay_07, pin: { mcp23017: mcp_p1_out, number: 6 } }
-  - { platform: gpio, id: p1_relay_08, pin: { mcp23017: mcp_p1_out, number: 7 } }
-  - { platform: gpio, id: p1_relay_09, pin: { mcp23017: mcp_p1_out, number: 8 } }
-  - { platform: gpio, id: p1_relay_10, pin: { mcp23017: mcp_p1_out, number: 9 } }
-  - { platform: gpio, id: p1_relay_11, pin: { mcp23017: mcp_p1_out, number: 10 } }
-  - { platform: gpio, id: p1_relay_12, pin: { mcp23017: mcp_p1_out, number: 11 } }
-  - { platform: gpio, id: p1_relay_13, pin: { mcp23017: mcp_p1_out, number: 12 } }
-  - { platform: gpio, id: p1_relay_14, pin: { mcp23017: mcp_p1_out, number: 13 } }
-  - { platform: gpio, id: p1_relay_15, pin: { mcp23017: mcp_p1_out, number: 14 } }
+  - { platform: gpio, id: p1_relay_01, pin: { mcp23xxx: mcp_p1_out, number: 0 } }
+  - { platform: gpio, id: p1_relay_02, pin: { mcp23xxx: mcp_p1_out, number: 1 } }
+  - { platform: gpio, id: p1_relay_03, pin: { mcp23xxx: mcp_p1_out, number: 2 } }
+  - { platform: gpio, id: p1_relay_04, pin: { mcp23xxx: mcp_p1_out, number: 3 } }
+  - { platform: gpio, id: p1_relay_05, pin: { mcp23xxx: mcp_p1_out, number: 4 } }
+  - { platform: gpio, id: p1_relay_06, pin: { mcp23xxx: mcp_p1_out, number: 5 } }
+  - { platform: gpio, id: p1_relay_07, pin: { mcp23xxx: mcp_p1_out, number: 6 } }
+  - { platform: gpio, id: p1_relay_08, pin: { mcp23xxx: mcp_p1_out, number: 7 } }
+  - { platform: gpio, id: p1_relay_09, pin: { mcp23xxx: mcp_p1_out, number: 8 } }
+  - { platform: gpio, id: p1_relay_10, pin: { mcp23xxx: mcp_p1_out, number: 9 } }
+  - { platform: gpio, id: p1_relay_11, pin: { mcp23xxx: mcp_p1_out, number: 10 } }
+  - { platform: gpio, id: p1_relay_12, pin: { mcp23xxx: mcp_p1_out, number: 11 } }
+  - { platform: gpio, id: p1_relay_13, pin: { mcp23xxx: mcp_p1_out, number: 12 } }
+  - { platform: gpio, id: p1_relay_14, pin: { mcp23xxx: mcp_p1_out, number: 13 } }
+  - { platform: gpio, id: p1_relay_15, pin: { mcp23xxx: mcp_p1_out, number: 14 } }
 
   # =======================================================================
   # LOGIC TEMPLATES (PULSE GENERATORS)
   # These outputs handle the 0.5s pulse logic. They check the real state
   # before firing the relay to avoid sync issues.
   # =======================================================================
-  
+
   # --- P0 Templates ---
   - platform: template
     id: p0_logic_01
     type: binary
     write_action:
-      - if:
-          condition: { lambda: 'return x != id(p0_state_01).state;' }
-          then: [output.turn_on: p0_relay_01, delay: 500ms, output.turn_off: p0_relay_01]
+      - if: { condition: { lambda: 'return x != id(p0_state_01).state;' }, then: [output.turn_on: p0_relay_01, delay: 500ms, output.turn_off: p0_relay_01] }
 
   - platform: template
     id: p0_logic_02
     type: binary
     write_action:
       - if: { condition: { lambda: 'return x != id(p0_state_02).state;' }, then: [output.turn_on: p0_relay_02, delay: 500ms, output.turn_off: p0_relay_02] }
-  
+
   # (Compressed format for brevity - follow the same pattern for all)
   - platform: template
     id: p0_logic_03
@@ -239,154 +481,6 @@ output:
     id: p1_logic_15
     type: binary
     write_action: [{ if: { condition: { lambda: 'return x != id(p1_state_15).state;' }, then: [output.turn_on: p1_relay_15, delay: 500ms, output.turn_off: p1_relay_15] } }]
-
-# -------------------------------------------------------------------------
-# BINARY SENSORS (FEEDBACK) & SYNC LOGIC
-# -------------------------------------------------------------------------
-binary_sensor:
-  # =======================================================================
-  # FLOOR P0 - SENSORS
-  # =======================================================================
-  - platform: gpio
-    id: p0_state_01
-    pin: { mcp23017: mcp_p0_in, number: 0, mode: INPUT_PULLUP }
-    on_state:
-      then: # Synchronize HA light entity with real state
-        - if: { condition: { binary_sensor.is_on: p0_state_01 }, then: [light.turn_on: light_p0_01], else: [light.turn_off: light_p0_01] }
-
-  - platform: gpio
-    id: p0_state_02
-    pin: { mcp23017: mcp_p0_in, number: 1, mode: INPUT_PULLUP }
-    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p0_state_02 }, then: [light.turn_on: light_p0_02], else: [light.turn_off: light_p0_02] } }] }
-
-  - platform: gpio
-    id: p0_state_03
-    pin: { mcp23017: mcp_p0_in, number: 2, mode: INPUT_PULLUP }
-    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p0_state_03 }, then: [light.turn_on: light_p0_03], else: [light.turn_off: light_p0_03] } }] }
-
-  - platform: gpio
-    id: p0_state_04
-    pin: { mcp23017: mcp_p0_in, number: 3, mode: INPUT_PULLUP }
-    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p0_state_04 }, then: [light.turn_on: light_p0_04], else: [light.turn_off: light_p0_04] } }] }
-
-  - platform: gpio
-    id: p0_state_05
-    pin: { mcp23017: mcp_p0_in, number: 4, mode: INPUT_PULLUP }
-    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p0_state_05 }, then: [light.turn_on: light_p0_05], else: [light.turn_off: light_p0_05] } }] }
-
-  - platform: gpio
-    id: p0_state_06
-    pin: { mcp23017: mcp_p0_in, number: 5, mode: INPUT_PULLUP }
-    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p0_state_06 }, then: [light.turn_on: light_p0_06], else: [light.turn_off: light_p0_06] } }] }
-
-  - platform: gpio
-    id: p0_state_07
-    pin: { mcp23017: mcp_p0_in, number: 6, mode: INPUT_PULLUP }
-    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p0_state_07 }, then: [light.turn_on: light_p0_07], else: [light.turn_off: light_p0_07] } }] }
-
-  - platform: gpio
-    id: p0_state_08
-    pin: { mcp23017: mcp_p0_in, number: 7, mode: INPUT_PULLUP }
-    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p0_state_08 }, then: [light.turn_on: light_p0_08], else: [light.turn_off: light_p0_08] } }] }
-
-  - platform: gpio
-    id: p0_state_09
-    pin: { mcp23017: mcp_p0_in, number: 8, mode: INPUT_PULLUP }
-    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p0_state_09 }, then: [light.turn_on: light_p0_09], else: [light.turn_off: light_p0_09] } }] }
-
-  - platform: gpio
-    id: p0_state_10
-    pin: { mcp23017: mcp_p0_in, number: 9, mode: INPUT_PULLUP }
-    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p0_state_10 }, then: [light.turn_on: light_p0_10], else: [light.turn_off: light_p0_10] } }] }
-
-  - platform: gpio
-    id: p0_state_11
-    pin: { mcp23017: mcp_p0_in, number: 10, mode: INPUT_PULLUP }
-    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p0_state_11 }, then: [light.turn_on: light_p0_11], else: [light.turn_off: light_p0_11] } }] }
-
-  - platform: gpio
-    id: p0_state_12
-    pin: { mcp23017: mcp_p0_in, number: 11, mode: INPUT_PULLUP }
-    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p0_state_12 }, then: [light.turn_on: light_p0_12], else: [light.turn_off: light_p0_12] } }] }
-
-  # =======================================================================
-  # FLOOR P1 - SENSORS
-  # =======================================================================
-  - platform: gpio
-    id: p1_state_01
-    pin: { mcp23017: mcp_p1_in, number: 0, mode: INPUT_PULLUP }
-    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p1_state_01 }, then: [light.turn_on: light_p1_01], else: [light.turn_off: light_p1_01] } }] }
-
-  - platform: gpio
-    id: p1_state_02
-    pin: { mcp23017: mcp_p1_in, number: 1, mode: INPUT_PULLUP }
-    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p1_state_02 }, then: [light.turn_on: light_p1_02], else: [light.turn_off: light_p1_02] } }] }
-
-  - platform: gpio
-    id: p1_state_03
-    pin: { mcp23017: mcp_p1_in, number: 2, mode: INPUT_PULLUP }
-    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p1_state_03 }, then: [light.turn_on: light_p1_03], else: [light.turn_off: light_p1_03] } }] }
-
-  - platform: gpio
-    id: p1_state_04
-    pin: { mcp23017: mcp_p1_in, number: 3, mode: INPUT_PULLUP }
-    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p1_state_04 }, then: [light.turn_on: light_p1_04], else: [light.turn_off: light_p1_04] } }] }
-
-  - platform: gpio
-    id: p1_state_05
-    pin: { mcp23017: mcp_p1_in, number: 4, mode: INPUT_PULLUP }
-    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p1_state_05 }, then: [light.turn_on: light_p1_05], else: [light.turn_off: light_p1_05] } }] }
-
-  - platform: gpio
-    id: p1_state_06
-    pin: { mcp23017: mcp_p1_in, number: 5, mode: INPUT_PULLUP }
-    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p1_state_06 }, then: [light.turn_on: light_p1_06], else: [light.turn_off: light_p1_06] } }] }
-
-  - platform: gpio
-    id: p1_state_07
-    pin: { mcp23017: mcp_p1_in, number: 6, mode: INPUT_PULLUP }
-    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p1_state_07 }, then: [light.turn_on: light_p1_07], else: [light.turn_off: light_p1_07] } }] }
-
-  - platform: gpio
-    id: p1_state_08
-    pin: { mcp23017: mcp_p1_in, number: 7, mode: INPUT_PULLUP }
-    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p1_state_08 }, then: [light.turn_on: light_p1_08], else: [light.turn_off: light_p1_08] } }] }
-
-  - platform: gpio
-    id: p1_state_09
-    pin: { mcp23017: mcp_p1_in, number: 8, mode: INPUT_PULLUP }
-    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p1_state_09 }, then: [light.turn_on: light_p1_09], else: [light.turn_off: light_p1_09] } }] }
-
-  - platform: gpio
-    id: p1_state_10
-    pin: { mcp23017: mcp_p1_in, number: 9, mode: INPUT_PULLUP }
-    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p1_state_10 }, then: [light.turn_on: light_p1_10], else: [light.turn_off: light_p1_10] } }] }
-
-  - platform: gpio
-    id: p1_state_11
-    pin: { mcp23017: mcp_p1_in, number: 10, mode: INPUT_PULLUP }
-    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p1_state_11 }, then: [light.turn_on: light_p1_11], else: [light.turn_off: light_p1_11] } }] }
-
-  - platform: gpio
-    id: p1_state_12
-    pin: { mcp23017: mcp_p1_in, number: 11, mode: INPUT_PULLUP }
-    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p1_state_12 }, then: [light.turn_on: light_p1_12], else: [light.turn_off: light_p1_12] } }] }
-
-  - platform: gpio
-    id: p1_state_13
-    pin: { mcp23017: mcp_p1_in, number: 12, mode: INPUT_PULLUP }
-    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p1_state_13 }, then: [light.turn_on: light_p1_13], else: [light.turn_off: light_p1_13] } }] }
-
-  - platform: gpio
-    id: p1_state_14
-    pin: { mcp23017: mcp_p1_in, number: 13, mode: INPUT_PULLUP }
-    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p1_state_14 }, then: [light.turn_on: light_p1_14], else: [light.turn_off: light_p1_14] } }] }
-
-  - platform: gpio
-    id: p1_state_15
-    pin: { mcp23017: mcp_p1_in, number: 14, mode: INPUT_PULLUP }
-    on_state: { then: [{ if: { condition: { binary_sensor.is_on: p1_state_15 }, then: [light.turn_on: light_p1_15], else: [light.turn_off: light_p1_15] } }] }
-
 
 # -------------------------------------------------------------------------
 # LIGHT ENTITIES (HOME ASSISTANT)
