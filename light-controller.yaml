@@ -5,25 +5,48 @@ esphome:
   name_add_mac_suffix: true
   # Abilita gli interrupt hardware sui chip MCP all'avvio
   on_boot:
-    priority: 600 # Esegui dopo l'inizializzazione I2C
-    then:
-      - lambda: |-
-          // --- CONFIGURAZIONE REGISTRI MCP23017 ---
-          // Registri (BANK=0): GPINTENA=0x04, GPINTENB=0x05, IOCON=0x0A
+    - priority: 600 # Esegui dopo l'inizializzazione I2C
+      then:
+        - lambda: |-
+            // --- CONFIGURAZIONE REGISTRI MCP23017 ---
+            // Registri (BANK=0): GPINTENA=0x04, GPINTENB=0x05, IOCON=0x0A
+  
+            // Configura HUB P0 Input (0x21)
+            // 0xFF = Abilita interrupt su tutti gli 8 pin della porta
+            id(mcp_p0_in).write_byte(0x04, 0xFF); // GPINTENA
+            id(mcp_p0_in).write_byte(0x05, 0xFF); // GPINTENB
+            // 0x42 = Bit 6 (MIRROR): Unisce INTA e INTB
+            //        Bit 1 (INTPOL): Active Low (Default)
+            id(mcp_p0_in).write_byte(0x0A, 0x42); // IOCON
+  
+            // Configura HUB P1 Input (0x23)
+            id(mcp_p1_in).write_byte(0x04, 0xFF); // GPINTENA
+            id(mcp_p1_in).write_byte(0x05, 0xFF); // GPINTENB
+            id(mcp_p1_in).write_byte(0x0A, 0x42); // IOCON
+#    - priority: -100  # molto tardi: così i componenti hanno già provato a inizializzarsi
+#      then:
+#        - delay: 60s
+#        - lambda: |-
+#            bool missing = false;
+#  
+#            // metti qui TUTTI i tuoi MCP
+#            if (id(mcp_p0_out).is_failed()) missing = true;
+#            if (id(mcp_p0_in).is_failed()) missing = true;
+#            if (id(mcp_p1_out).is_failed()) missing = true;
+#            if (id(mcp_p1_in).is_failed()) missing = true;
+#  
+#            if (missing) {
+#              ESP_LOGE("bootcheck", "MCP missing -> HARD reset");
+#              esp_restart(); // avoid a clean shutdown
+#            }
 
-          // Configura HUB P0 Input (0x21)
-          // 0xFF = Abilita interrupt su tutti gli 8 pin della porta
-          id(mcp_p0_in).write_byte(0x04, 0xFF); // GPINTENA
-          id(mcp_p0_in).write_byte(0x05, 0xFF); // GPINTENB
-          // 0x42 = Bit 6 (MIRROR): Unisce INTA e INTB
-          //        Bit 1 (INTPOL): Active Low (Default)
-          id(mcp_p0_in).write_byte(0x0A, 0x42); // IOCON
 
-          // Configura HUB P1 Input (0x23)
-          id(mcp_p1_in).write_byte(0x04, 0xFF); // GPINTENA
-          id(mcp_p1_in).write_byte(0x05, 0xFF); // GPINTENB
-          id(mcp_p1_in).write_byte(0x0A, 0x42); // IOCON
+safe_mode:
+  boot_is_good_after: 2min   # must be > of delay + check
+  num_attempts: 10
 
+substitutions:
+  PULSE_DELAY: 500ms
 
 esp32:
   board: esp32-poe-iso
@@ -38,6 +61,9 @@ ethernet:
     pin: GPIO17
     mode: CLK_OUT # This replaces the deprecated GPIO17_OUT
   phy_addr: 0
+  power_pin:
+    number: GPIO12
+    ignore_strapping_warning: true
 
 # -------------------------------------------------------------------------
 # SNIPPETS INTEGRATION
@@ -70,6 +96,10 @@ web_server:
   port: 80
   version: 3
 
+button:
+  - platform: restart
+    name: "ESPHome Restart"
+
 # -------------------------------------------------------------------------
 # I2C BUS CONFIGURATION
 # -------------------------------------------------------------------------
@@ -78,7 +108,9 @@ i2c:
   scl: GPIO16
   scan: true
   # High frequency for better responsiveness
-  frequency: 400kHz
+  #frequency: 400kHz
+  #frequency: 100kHz
+  frequency: 10kHz
 
 # -------------------------------------------------------------------------
 # MCP23017 EXPANDERS CONFIGURATION
@@ -102,44 +134,41 @@ mcp23017:
     address: 0x23
     # Sharing the same interrupt pin as P0 (Wired-OR configuration)
 
+# This script contains the C++ arrays and loops to read all sensors efficiently.
+script:
+  - id: read_all_inputs
+    mode: queued
+    then:
+      - lambda: |-
+          // --- FLOOR P0 READ LOOP (12 Sensors) ---
+          binary_sensor::BinarySensor *p0_sensors[] = {
+            id(p0_state_01), id(p0_state_02), id(p0_state_03), id(p0_state_04),
+            id(p0_state_05), id(p0_state_06), id(p0_state_07), id(p0_state_08),
+            id(p0_state_09), id(p0_state_10), id(p0_state_11), id(p0_state_12)
+          };
+          for (int i = 0; i < 12; i++) {
+            p0_sensors[i]->publish_state(id(mcp_p0_in).digital_read(i));
+          }
+
+          // --- FLOOR P1 READ LOOP (15 Sensors) ---
+          binary_sensor::BinarySensor *p1_sensors[] = {
+            id(p1_state_01), id(p1_state_02), id(p1_state_03), id(p1_state_04),
+            id(p1_state_05), id(p1_state_06), id(p1_state_07), id(p1_state_08),
+            id(p1_state_09), id(p1_state_10), id(p1_state_11), id(p1_state_12),
+            id(p1_state_13), id(p1_state_14), id(p1_state_15)
+          };
+          for (int i = 0; i < 15; i++) {
+            p1_sensors[i]->publish_state(id(mcp_p1_in).digital_read(i));
+          }
+
+
 # --- MANUAL POLLING ENGINE (The Core) ---
 # This component executes the lambda every 100ms.
 # It manually reads the hardware pins and pushes the state to the sensors.
 interval:
   - interval: 100ms
     then:
-      - lambda: |-
-          // --- FLOOR P0 INPUT READING (12 Sensors) ---
-          // Read hardware pin -> Publish state to sensor
-          id(p0_state_01).publish_state(id(mcp_p0_in).digital_read(0));
-          id(p0_state_02).publish_state(id(mcp_p0_in).digital_read(1));
-          id(p0_state_03).publish_state(id(mcp_p0_in).digital_read(2));
-          id(p0_state_04).publish_state(id(mcp_p0_in).digital_read(3));
-          id(p0_state_05).publish_state(id(mcp_p0_in).digital_read(4));
-          id(p0_state_06).publish_state(id(mcp_p0_in).digital_read(5));
-          id(p0_state_07).publish_state(id(mcp_p0_in).digital_read(6));
-          id(p0_state_08).publish_state(id(mcp_p0_in).digital_read(7));
-          id(p0_state_09).publish_state(id(mcp_p0_in).digital_read(8));
-          id(p0_state_10).publish_state(id(mcp_p0_in).digital_read(9));
-          id(p0_state_11).publish_state(id(mcp_p0_in).digital_read(10));
-          id(p0_state_12).publish_state(id(mcp_p0_in).digital_read(11));
-
-          // --- FLOOR P1 INPUT READING (15 Sensors) ---
-          id(p1_state_01).publish_state(id(mcp_p1_in).digital_read(0));
-          id(p1_state_02).publish_state(id(mcp_p1_in).digital_read(1));
-          id(p1_state_03).publish_state(id(mcp_p1_in).digital_read(2));
-          id(p1_state_04).publish_state(id(mcp_p1_in).digital_read(3));
-          id(p1_state_05).publish_state(id(mcp_p1_in).digital_read(4));
-          id(p1_state_06).publish_state(id(mcp_p1_in).digital_read(5));
-          id(p1_state_07).publish_state(id(mcp_p1_in).digital_read(6));
-          id(p1_state_08).publish_state(id(mcp_p1_in).digital_read(7));
-          id(p1_state_09).publish_state(id(mcp_p1_in).digital_read(8));
-          id(p1_state_10).publish_state(id(mcp_p1_in).digital_read(9));
-          id(p1_state_11).publish_state(id(mcp_p1_in).digital_read(10));
-          id(p1_state_12).publish_state(id(mcp_p1_in).digital_read(11));
-          id(p1_state_13).publish_state(id(mcp_p1_in).digital_read(12));
-          id(p1_state_14).publish_state(id(mcp_p1_in).digital_read(13));
-          id(p1_state_15).publish_state(id(mcp_p1_in).digital_read(14));
+      - script.execute: read_all_inputs
 
 # --- INTERRUPT WORKAROUND (The "Real-time" Trigger) ---
 # Since MCP23017 doesn't support int_pin natively, we use a GPIO
@@ -148,31 +177,16 @@ binary_sensor:
   - platform: gpio
     id: irq_handler
     pin:
-      number: GPIO1
+      number: GPIO5
       mode: INPUT_PULLUP
     internal: true
     # Scatta quando l'MCP porta il pin a massa (Active Low)
     filters:
       - invert:
+      - delayed_off: 10ms # Minimum hardware debounce
     on_press:
       then:
-        - lambda: |-
-            // When the interrupt triggers, force a read.
-            // Note: calling .update() on a single sensor triggers an I2C read for the entire bank
-            // and publishes the state for THAT specific sensor only.
-
-            // Update P0
-            id(p0_state_01).publish_state();id(p0_state_02).publish_state(); id(p0_state_03).publish_state();
-            id(p0_state_04).publish_state(); id(p0_state_05).publish_state(); id(p0_state_06).publish_state();
-            id(p0_state_07).publish_state(); id(p0_state_08).publish_state(); id(p0_state_09).publish_state();
-            id(p0_state_10).publish_state(); id(p0_state_11).publish_state(); id(p0_state_12).publish_state();
-
-            // Update P1
-            id(p1_state_01).publish_state(); id(p1_state_02).publish_state(); id(p1_state_03).publish_state();
-            id(p1_state_04).publish_state(); id(p1_state_05).publish_state(); id(p1_state_06).publish_state();
-            id(p1_state_07).publish_state(); id(p1_state_08).publish_state(); id(p1_state_09).publish_state();
-            id(p1_state_10).publish_state(); id(p1_state_11).publish_state(); id(p1_state_12).publish_state();
-            id(p1_state_13).publish_state(); id(p1_state_14).publish_state(); id(p1_state_15).publish_state();
+        - script.execute: read_all_inputs
 
 # -------------------------------------------------------------------------
 # BINARY SENSORS (FEEDBACK) & SYNC LOGIC
@@ -318,8 +332,6 @@ binary_sensor:
     pin: { mcp23xxx: mcp_p1_in, number: 14, mode: INPUT_PULLUP }
     on_state: { then: [{ if: { condition: { binary_sensor.is_on: p1_state_15 }, then: [light.turn_on: light_p1_15], else: [light.turn_off: light_p1_15] } }] }
 
-
-
 # -------------------------------------------------------------------------
 # OUTPUTS DEFINITION
 # -------------------------------------------------------------------------
@@ -369,118 +381,113 @@ output:
   - platform: template
     id: p0_logic_01
     type: binary
-    write_action:
-      - if: { condition: { lambda: 'return x != id(p0_state_01).state;' }, then: [output.turn_on: p0_relay_01, delay: 500ms, output.turn_off: p0_relay_01] }
-
+    write_action: [{ if: { condition: { lambda: 'return (bool)state != id(p0_state_01).state;' }, then: [output.turn_on: p0_relay_01, delay: "${PULSE_DELAY}", output.turn_off: p0_relay_01] } }]
   - platform: template
     id: p0_logic_02
     type: binary
-    write_action:
-      - if: { condition: { lambda: 'return x != id(p0_state_02).state;' }, then: [output.turn_on: p0_relay_02, delay: 500ms, output.turn_off: p0_relay_02] }
-
-  # (Compressed format for brevity - follow the same pattern for all)
+    write_action: [{ if: { condition: { lambda: 'return (bool)state != id(p0_state_02).state;' }, then: [output.turn_on: p0_relay_02, delay: "${PULSE_DELAY}", output.turn_off: p0_relay_02] } }]
   - platform: template
     id: p0_logic_03
     type: binary
-    write_action: [{ if: { condition: { lambda: 'return x != id(p0_state_03).state;' }, then: [output.turn_on: p0_relay_03, delay: 500ms, output.turn_off: p0_relay_03] } }]
+    write_action: [{ if: { condition: { lambda: 'return (bool)state != id(p0_state_03).state;' }, then: [output.turn_on: p0_relay_03, delay: "${PULSE_DELAY}", output.turn_off: p0_relay_03] } }]
   - platform: template
     id: p0_logic_04
     type: binary
-    write_action: [{ if: { condition: { lambda: 'return x != id(p0_state_04).state;' }, then: [output.turn_on: p0_relay_04, delay: 500ms, output.turn_off: p0_relay_04] } }]
+    write_action: [{ if: { condition: { lambda: 'return (bool)state != id(p0_state_04).state;' }, then: [output.turn_on: p0_relay_04, delay: "${PULSE_DELAY}", output.turn_off: p0_relay_04] } }]
   - platform: template
     id: p0_logic_05
     type: binary
-    write_action: [{ if: { condition: { lambda: 'return x != id(p0_state_05).state;' }, then: [output.turn_on: p0_relay_05, delay: 500ms, output.turn_off: p0_relay_05] } }]
+    write_action: [{ if: { condition: { lambda: 'return (bool)state != id(p0_state_05).state;' }, then: [output.turn_on: p0_relay_05, delay: "${PULSE_DELAY}", output.turn_off: p0_relay_05] } }]
   - platform: template
     id: p0_logic_06
     type: binary
-    write_action: [{ if: { condition: { lambda: 'return x != id(p0_state_06).state;' }, then: [output.turn_on: p0_relay_06, delay: 500ms, output.turn_off: p0_relay_06] } }]
+    write_action: [{ if: { condition: { lambda: 'return (bool)state != id(p0_state_06).state;' }, then: [output.turn_on: p0_relay_06, delay: "${PULSE_DELAY}", output.turn_off: p0_relay_06] } }]
   - platform: template
     id: p0_logic_07
     type: binary
-    write_action: [{ if: { condition: { lambda: 'return x != id(p0_state_07).state;' }, then: [output.turn_on: p0_relay_07, delay: 500ms, output.turn_off: p0_relay_07] } }]
+    write_action: [{ if: { condition: { lambda: 'return (bool)state != id(p0_state_07).state;' }, then: [output.turn_on: p0_relay_07, delay: "${PULSE_DELAY}", output.turn_off: p0_relay_07] } }]
   - platform: template
     id: p0_logic_08
     type: binary
-    write_action: [{ if: { condition: { lambda: 'return x != id(p0_state_08).state;' }, then: [output.turn_on: p0_relay_08, delay: 500ms, output.turn_off: p0_relay_08] } }]
+    write_action: [{ if: { condition: { lambda: 'return (bool)state != id(p0_state_08).state;' }, then: [output.turn_on: p0_relay_08, delay: "${PULSE_DELAY}", output.turn_off: p0_relay_08] } }]
   - platform: template
     id: p0_logic_09
     type: binary
-    write_action: [{ if: { condition: { lambda: 'return x != id(p0_state_09).state;' }, then: [output.turn_on: p0_relay_09, delay: 500ms, output.turn_off: p0_relay_09] } }]
+    write_action: [{ if: { condition: { lambda: 'return (bool)state != id(p0_state_09).state;' }, then: [output.turn_on: p0_relay_09, delay: "${PULSE_DELAY}", output.turn_off: p0_relay_09] } }]
   - platform: template
     id: p0_logic_10
     type: binary
-    write_action: [{ if: { condition: { lambda: 'return x != id(p0_state_10).state;' }, then: [output.turn_on: p0_relay_10, delay: 500ms, output.turn_off: p0_relay_10] } }]
+    write_action: [{ if: { condition: { lambda: 'return (bool)state != id(p0_state_10).state;' }, then: [output.turn_on: p0_relay_10, delay: "${PULSE_DELAY}", output.turn_off: p0_relay_10] } }]
   - platform: template
     id: p0_logic_11
     type: binary
-    write_action: [{ if: { condition: { lambda: 'return x != id(p0_state_11).state;' }, then: [output.turn_on: p0_relay_11, delay: 500ms, output.turn_off: p0_relay_11] } }]
+    write_action: [{ if: { condition: { lambda: 'return (bool)state != id(p0_state_11).state;' }, then: [output.turn_on: p0_relay_11, delay: "${PULSE_DELAY}", output.turn_off: p0_relay_11] } }]
   - platform: template
     id: p0_logic_12
     type: binary
-    write_action: [{ if: { condition: { lambda: 'return x != id(p0_state_12).state;' }, then: [output.turn_on: p0_relay_12, delay: 500ms, output.turn_off: p0_relay_12] } }]
+    write_action: [{ if: { condition: { lambda: 'return (bool)state != id(p0_state_12).state;' }, then: [output.turn_on: p0_relay_12, delay: "${PULSE_DELAY}", output.turn_off: p0_relay_12] } }]
 
   # --- P1 Templates ---
   - platform: template
     id: p1_logic_01
     type: binary
-    write_action: [{ if: { condition: { lambda: 'return x != id(p1_state_01).state;' }, then: [output.turn_on: p1_relay_01, delay: 500ms, output.turn_off: p1_relay_01] } }]
+    write_action: [{ if: { condition: { lambda: 'return (bool)state != id(p1_state_01).state;' }, then: [output.turn_on: p1_relay_01, delay: "${PULSE_DELAY}", output.turn_off: p1_relay_01] } }]
   - platform: template
     id: p1_logic_02
     type: binary
-    write_action: [{ if: { condition: { lambda: 'return x != id(p1_state_02).state;' }, then: [output.turn_on: p1_relay_02, delay: 500ms, output.turn_off: p1_relay_02] } }]
+    write_action: [{ if: { condition: { lambda: 'return (bool)state != id(p1_state_02).state;' }, then: [output.turn_on: p1_relay_02, delay: "${PULSE_DELAY}", output.turn_off: p1_relay_02] } }]
   - platform: template
     id: p1_logic_03
     type: binary
-    write_action: [{ if: { condition: { lambda: 'return x != id(p1_state_03).state;' }, then: [output.turn_on: p1_relay_03, delay: 500ms, output.turn_off: p1_relay_03] } }]
+    write_action: [{ if: { condition: { lambda: 'return (bool)state != id(p1_state_03).state;' }, then: [output.turn_on: p1_relay_03, delay: "${PULSE_DELAY}", output.turn_off: p1_relay_03] } }]
   - platform: template
     id: p1_logic_04
     type: binary
-    write_action: [{ if: { condition: { lambda: 'return x != id(p1_state_04).state;' }, then: [output.turn_on: p1_relay_04, delay: 500ms, output.turn_off: p1_relay_04] } }]
+    write_action: [{ if: { condition: { lambda: 'return (bool)state != id(p1_state_04).state;' }, then: [output.turn_on: p1_relay_04, delay: "${PULSE_DELAY}", output.turn_off: p1_relay_04] } }]
   - platform: template
     id: p1_logic_05
     type: binary
-    write_action: [{ if: { condition: { lambda: 'return x != id(p1_state_05).state;' }, then: [output.turn_on: p1_relay_05, delay: 500ms, output.turn_off: p1_relay_05] } }]
+    write_action: [{ if: { condition: { lambda: 'return (bool)state != id(p1_state_05).state;' }, then: [output.turn_on: p1_relay_05, delay: "${PULSE_DELAY}", output.turn_off: p1_relay_05] } }]
   - platform: template
     id: p1_logic_06
     type: binary
-    write_action: [{ if: { condition: { lambda: 'return x != id(p1_state_06).state;' }, then: [output.turn_on: p1_relay_06, delay: 500ms, output.turn_off: p1_relay_06] } }]
+    write_action: [{ if: { condition: { lambda: 'return (bool)state != id(p1_state_06).state;' }, then: [output.turn_on: p1_relay_06, delay: "${PULSE_DELAY}", output.turn_off: p1_relay_06] } }]
   - platform: template
     id: p1_logic_07
     type: binary
-    write_action: [{ if: { condition: { lambda: 'return x != id(p1_state_07).state;' }, then: [output.turn_on: p1_relay_07, delay: 500ms, output.turn_off: p1_relay_07] } }]
+    write_action: [{ if: { condition: { lambda: 'return (bool)state != id(p1_state_07).state;' }, then: [output.turn_on: p1_relay_07, delay: "${PULSE_DELAY}", output.turn_off: p1_relay_07] } }]
   - platform: template
     id: p1_logic_08
     type: binary
-    write_action: [{ if: { condition: { lambda: 'return x != id(p1_state_08).state;' }, then: [output.turn_on: p1_relay_08, delay: 500ms, output.turn_off: p1_relay_08] } }]
+    write_action: [{ if: { condition: { lambda: 'return (bool)state != id(p1_state_08).state;' }, then: [output.turn_on: p1_relay_08, delay: "${PULSE_DELAY}", output.turn_off: p1_relay_08] } }]
   - platform: template
     id: p1_logic_09
     type: binary
-    write_action: [{ if: { condition: { lambda: 'return x != id(p1_state_09).state;' }, then: [output.turn_on: p1_relay_09, delay: 500ms, output.turn_off: p1_relay_09] } }]
+    write_action: [{ if: { condition: { lambda: 'return (bool)state != id(p1_state_09).state;' }, then: [output.turn_on: p1_relay_09, delay: "${PULSE_DELAY}", output.turn_off: p1_relay_09] } }]
   - platform: template
     id: p1_logic_10
     type: binary
-    write_action: [{ if: { condition: { lambda: 'return x != id(p1_state_10).state;' }, then: [output.turn_on: p1_relay_10, delay: 500ms, output.turn_off: p1_relay_10] } }]
+    write_action: [{ if: { condition: { lambda: 'return (bool)state != id(p1_state_10).state;' }, then: [output.turn_on: p1_relay_10, delay: "${PULSE_DELAY}", output.turn_off: p1_relay_10] } }]
   - platform: template
     id: p1_logic_11
     type: binary
-    write_action: [{ if: { condition: { lambda: 'return x != id(p1_state_11).state;' }, then: [output.turn_on: p1_relay_11, delay: 500ms, output.turn_off: p1_relay_11] } }]
+    write_action: [{ if: { condition: { lambda: 'return (bool)state != id(p1_state_11).state;' }, then: [output.turn_on: p1_relay_11, delay: "${PULSE_DELAY}", output.turn_off: p1_relay_11] } }]
   - platform: template
     id: p1_logic_12
     type: binary
-    write_action: [{ if: { condition: { lambda: 'return x != id(p1_state_12).state;' }, then: [output.turn_on: p1_relay_12, delay: 500ms, output.turn_off: p1_relay_12] } }]
+    write_action: [{ if: { condition: { lambda: 'return (bool)state != id(p1_state_12).state;' }, then: [output.turn_on: p1_relay_12, delay: "${PULSE_DELAY}", output.turn_off: p1_relay_12] } }]
   - platform: template
     id: p1_logic_13
     type: binary
-    write_action: [{ if: { condition: { lambda: 'return x != id(p1_state_13).state;' }, then: [output.turn_on: p1_relay_13, delay: 500ms, output.turn_off: p1_relay_13] } }]
+    write_action: [{ if: { condition: { lambda: 'return (bool)state != id(p1_state_13).state;' }, then: [output.turn_on: p1_relay_13, delay: "${PULSE_DELAY}", output.turn_off: p1_relay_13] } }]
   - platform: template
     id: p1_logic_14
     type: binary
-    write_action: [{ if: { condition: { lambda: 'return x != id(p1_state_14).state;' }, then: [output.turn_on: p1_relay_14, delay: 500ms, output.turn_off: p1_relay_14] } }]
+    write_action: [{ if: { condition: { lambda: 'return (bool)state != id(p1_state_14).state;' }, then: [output.turn_on: p1_relay_14, delay: "${PULSE_DELAY}", output.turn_off: p1_relay_14] } }]
   - platform: template
     id: p1_logic_15
     type: binary
-    write_action: [{ if: { condition: { lambda: 'return x != id(p1_state_15).state;' }, then: [output.turn_on: p1_relay_15, delay: 500ms, output.turn_off: p1_relay_15] } }]
+    write_action: [{ if: { condition: { lambda: 'return (bool)state != id(p1_state_15).state;' }, then: [output.turn_on: p1_relay_15, delay: "${PULSE_DELAY}", output.turn_off: p1_relay_15] } }]
 
 # -------------------------------------------------------------------------
 # LIGHT ENTITIES (HOME ASSISTANT)
