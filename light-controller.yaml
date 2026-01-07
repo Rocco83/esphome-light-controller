@@ -108,9 +108,9 @@ i2c:
   scl: GPIO16
   scan: true
   # High frequency for better responsiveness
-  #frequency: 400kHz
+  frequency: 400kHz
   #frequency: 100kHz
-  frequency: 10kHz
+  #frequency: 10kHz
 
 # -------------------------------------------------------------------------
 # MCP23017 EXPANDERS CONFIGURATION
@@ -146,9 +146,24 @@ script:
             id(p0_state_05), id(p0_state_06), id(p0_state_07), id(p0_state_08),
             id(p0_state_09), id(p0_state_10), id(p0_state_11), id(p0_state_12)
           };
+          light::LightState *p0_lights[] = {
+            id(light_p0_01), id(light_p0_02), id(light_p0_03), id(light_p0_04),
+            id(light_p0_05), id(light_p0_06), id(light_p0_07), id(light_p0_08),
+            id(light_p0_09), id(light_p0_10), id(light_p0_11), id(light_p0_12)
+          };
+
           for (int i = 0; i < 12; i++) {
             p0_sensors[i]->publish_state(id(mcp_p0_in).digital_read(i));
-          }
+            const bool hw = id(mcp_p0_in).digital_read(i);
+            p0_sensors[i]->publish_state(hw);
+
+            // Force HA light state to match real relay feedback even if there's no edge
+            if (hw) {
+              if (!p0_lights[i]->current_values.is_on()) p0_lights[i]->turn_on();
+            } else {
+              if (p0_lights[i]->current_values.is_on()) p0_lights[i]->turn_off();
+            }
+           }
 
           // --- FLOOR P1 READ LOOP (15 Sensors) ---
           binary_sensor::BinarySensor *p1_sensors[] = {
@@ -157,8 +172,22 @@ script:
             id(p1_state_09), id(p1_state_10), id(p1_state_11), id(p1_state_12),
             id(p1_state_13), id(p1_state_14), id(p1_state_15)
           };
+          light::LightState *p1_lights[] = {
+            id(light_p1_01), id(light_p1_02), id(light_p1_03), id(light_p1_04),
+            id(light_p1_05), id(light_p1_06), id(light_p1_07), id(light_p1_08),
+            id(light_p1_09), id(light_p1_10), id(light_p1_11), id(light_p1_12),
+            id(light_p1_13), id(light_p1_14), id(light_p1_15)
+          };
           for (int i = 0; i < 15; i++) {
-            p1_sensors[i]->publish_state(id(mcp_p1_in).digital_read(i));
+            const bool hw = id(mcp_p1_in).digital_read(i);
+            p1_sensors[i]->publish_state(hw);
+
+            // Force HA light state to match real relay feedback even if there's no edge
+            if (hw) {
+              if (!p1_lights[i]->current_values.is_on()) p1_lights[i]->turn_on();
+            } else {
+              if (p1_lights[i]->current_values.is_on()) p1_lights[i]->turn_off();
+            }
           }
 
 
@@ -339,37 +368,37 @@ output:
   # =======================================================================
   # FLOOR P0 - PHYSICAL RELAY PINS (Direct mapping to MCP pins)
   # =======================================================================
-  - { platform: gpio, id: p0_relay_01, pin: { mcp23xxx: mcp_p0_out, number: 0 } }
-  - { platform: gpio, id: p0_relay_02, pin: { mcp23xxx: mcp_p0_out, number: 1 } }
-  - { platform: gpio, id: p0_relay_03, pin: { mcp23xxx: mcp_p0_out, number: 2 } }
-  - { platform: gpio, id: p0_relay_04, pin: { mcp23xxx: mcp_p0_out, number: 3 } }
-  - { platform: gpio, id: p0_relay_05, pin: { mcp23xxx: mcp_p0_out, number: 4 } }
-  - { platform: gpio, id: p0_relay_06, pin: { mcp23xxx: mcp_p0_out, number: 5 } }
-  - { platform: gpio, id: p0_relay_07, pin: { mcp23xxx: mcp_p0_out, number: 6 } }
-  - { platform: gpio, id: p0_relay_08, pin: { mcp23xxx: mcp_p0_out, number: 7 } }
-  - { platform: gpio, id: p0_relay_09, pin: { mcp23xxx: mcp_p0_out, number: 8 } }
-  - { platform: gpio, id: p0_relay_10, pin: { mcp23xxx: mcp_p0_out, number: 9 } }
-  - { platform: gpio, id: p0_relay_11, pin: { mcp23xxx: mcp_p0_out, number: 10 } }
-  - { platform: gpio, id: p0_relay_12, pin: { mcp23xxx: mcp_p0_out, number: 11 } }
+  - { platform: gpio, id: p0_relay_01, inverted: true, pin: { mcp23xxx: mcp_p0_out, number: 0 } }
+  - { platform: gpio, id: p0_relay_02, inverted: true, pin: { mcp23xxx: mcp_p0_out, number: 1 } }
+  - { platform: gpio, id: p0_relay_03, inverted: true, pin: { mcp23xxx: mcp_p0_out, number: 2 } }
+  - { platform: gpio, id: p0_relay_04, inverted: true, pin: { mcp23xxx: mcp_p0_out, number: 3 } }
+  - { platform: gpio, id: p0_relay_05, inverted: true, pin: { mcp23xxx: mcp_p0_out, number: 4 } }
+  - { platform: gpio, id: p0_relay_06, inverted: true, pin: { mcp23xxx: mcp_p0_out, number: 5 } }
+  - { platform: gpio, id: p0_relay_07, inverted: true, pin: { mcp23xxx: mcp_p0_out, number: 6 } }
+  - { platform: gpio, id: p0_relay_08, inverted: true, pin: { mcp23xxx: mcp_p0_out, number: 7 } }
+  - { platform: gpio, id: p0_relay_09, inverted: true, pin: { mcp23xxx: mcp_p0_out, number: 8 } }
+  - { platform: gpio, id: p0_relay_10, inverted: true, pin: { mcp23xxx: mcp_p0_out, number: 9 } }
+  - { platform: gpio, id: p0_relay_11, inverted: true, pin: { mcp23xxx: mcp_p0_out, number: 10 } }
+  - { platform: gpio, id: p0_relay_12, inverted: true, pin: { mcp23xxx: mcp_p0_out, number: 11 } }
 
   # =======================================================================
   # FLOOR P1 - PHYSICAL RELAY PINS (Direct mapping to MCP pins)
   # =======================================================================
-  - { platform: gpio, id: p1_relay_01, pin: { mcp23xxx: mcp_p1_out, number: 0 } }
-  - { platform: gpio, id: p1_relay_02, pin: { mcp23xxx: mcp_p1_out, number: 1 } }
-  - { platform: gpio, id: p1_relay_03, pin: { mcp23xxx: mcp_p1_out, number: 2 } }
-  - { platform: gpio, id: p1_relay_04, pin: { mcp23xxx: mcp_p1_out, number: 3 } }
-  - { platform: gpio, id: p1_relay_05, pin: { mcp23xxx: mcp_p1_out, number: 4 } }
-  - { platform: gpio, id: p1_relay_06, pin: { mcp23xxx: mcp_p1_out, number: 5 } }
-  - { platform: gpio, id: p1_relay_07, pin: { mcp23xxx: mcp_p1_out, number: 6 } }
-  - { platform: gpio, id: p1_relay_08, pin: { mcp23xxx: mcp_p1_out, number: 7 } }
-  - { platform: gpio, id: p1_relay_09, pin: { mcp23xxx: mcp_p1_out, number: 8 } }
-  - { platform: gpio, id: p1_relay_10, pin: { mcp23xxx: mcp_p1_out, number: 9 } }
-  - { platform: gpio, id: p1_relay_11, pin: { mcp23xxx: mcp_p1_out, number: 10 } }
-  - { platform: gpio, id: p1_relay_12, pin: { mcp23xxx: mcp_p1_out, number: 11 } }
-  - { platform: gpio, id: p1_relay_13, pin: { mcp23xxx: mcp_p1_out, number: 12 } }
-  - { platform: gpio, id: p1_relay_14, pin: { mcp23xxx: mcp_p1_out, number: 13 } }
-  - { platform: gpio, id: p1_relay_15, pin: { mcp23xxx: mcp_p1_out, number: 14 } }
+  - { platform: gpio, id: p1_relay_01, inverted: true, pin: { mcp23xxx: mcp_p1_out, number: 0 } }
+  - { platform: gpio, id: p1_relay_02, inverted: true, pin: { mcp23xxx: mcp_p1_out, number: 1 } }
+  - { platform: gpio, id: p1_relay_03, inverted: true, pin: { mcp23xxx: mcp_p1_out, number: 2 } }
+  - { platform: gpio, id: p1_relay_04, inverted: true, pin: { mcp23xxx: mcp_p1_out, number: 3 } }
+  - { platform: gpio, id: p1_relay_05, inverted: true, pin: { mcp23xxx: mcp_p1_out, number: 4 } }
+  - { platform: gpio, id: p1_relay_06, inverted: true, pin: { mcp23xxx: mcp_p1_out, number: 5 } }
+  - { platform: gpio, id: p1_relay_07, inverted: true, pin: { mcp23xxx: mcp_p1_out, number: 6 } }
+  - { platform: gpio, id: p1_relay_08, inverted: true, pin: { mcp23xxx: mcp_p1_out, number: 7 } }
+  - { platform: gpio, id: p1_relay_09, inverted: true, pin: { mcp23xxx: mcp_p1_out, number: 8 } }
+  - { platform: gpio, id: p1_relay_10, inverted: true, pin: { mcp23xxx: mcp_p1_out, number: 9 } }
+  - { platform: gpio, id: p1_relay_11, inverted: true, pin: { mcp23xxx: mcp_p1_out, number: 10 } }
+  - { platform: gpio, id: p1_relay_12, inverted: true, pin: { mcp23xxx: mcp_p1_out, number: 11 } }
+  - { platform: gpio, id: p1_relay_13, inverted: true, pin: { mcp23xxx: mcp_p1_out, number: 12 } }
+  - { platform: gpio, id: p1_relay_14, inverted: true, pin: { mcp23xxx: mcp_p1_out, number: 13 } }
+  - { platform: gpio, id: p1_relay_15, inverted: true, pin: { mcp23xxx: mcp_p1_out, number: 14 } }
 
   # =======================================================================
   # LOGIC TEMPLATES (PULSE GENERATORS)
