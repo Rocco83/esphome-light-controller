@@ -140,6 +140,9 @@ script:
     mode: queued
     then:
       - lambda: |-
+          static const char *TAG = "sync";
+          static uint32_t cycles = 0;
+
           // --- FLOOR P0 READ LOOP (12 Sensors) ---
           binary_sensor::BinarySensor *p0_sensors[] = {
             id(p0_state_01), id(p0_state_02), id(p0_state_03), id(p0_state_04),
@@ -159,11 +162,19 @@ script:
 
             // Force HA light state to match real relay feedback even if there's no edge
             if (hw) {
-              if (!p0_lights[i]->current_values.is_on()) p0_lights[i]->turn_on();
+              if (!p0_lights[i]->current_values.is_on()) {
+                ESP_LOGI(TAG, "P0[%02d] hw=1 -> light ON (was OFF)", i+1);
+                auto call = p0_lights[i]->turn_on();
+                call.perform();
+              }
             } else {
-              if (p0_lights[i]->current_values.is_on()) p0_lights[i]->turn_off();
+              if (p0_lights[i]->current_values.is_on()) {
+                ESP_LOGI(TAG, "P0[%02d] hw=0 -> light OFF (was ON)", i+1);
+                auto call = p0_lights[i]->turn_off();
+                call.perform();
+              }
             }
-           }
+          }
 
           // --- FLOOR P1 READ LOOP (15 Sensors) ---
           binary_sensor::BinarySensor *p1_sensors[] = {
@@ -184,10 +195,36 @@ script:
 
             // Force HA light state to match real relay feedback even if there's no edge
             if (hw) {
-              if (!p1_lights[i]->current_values.is_on()) p1_lights[i]->turn_on();
+              if (!p1_lights[i]->current_values.is_on()) {
+                ESP_LOGI(TAG, "P1[%02d] hw=1 -> light ON (was OFF)", i+1);
+                auto call = p1_lights[i]->turn_on();
+                call.perform();
+              }
             } else {
-              if (p1_lights[i]->current_values.is_on()) p1_lights[i]->turn_off();
+              if (p1_lights[i]->current_values.is_on()) {
+                ESP_LOGI(TAG, "P1[%02d] hw=0 -> light OFF (was ON)", i+1);
+                auto call = p1_lights[i]->turn_off();
+                call.perform();
+              }
             }
+          }
+
+          // Periodic full dump: every 100 cycles (~10s @ 100ms)
+          cycles++;
+          if (cycles >= 100) {
+            cycles = 0;
+            ESP_LOGI(TAG, "---- FULL STATE DUMP ----");
+            for (int i = 0; i < 12; i++) {
+              const bool hw = id(mcp_p0_in).digital_read(i);
+              const bool l  = p0_lights[i]->current_values.is_on();
+              ESP_LOGI(TAG, "P0[%02d] hw=%d light=%d", i+1, hw ? 1 : 0, l ? 1 : 0);
+            }
+            for (int i = 0; i < 15; i++) {
+              const bool hw = id(mcp_p1_in).digital_read(i);
+              const bool l  = p1_lights[i]->current_values.is_on();
+              ESP_LOGI(TAG, "P1[%02d] hw=%d light=%d", i+1, hw ? 1 : 0, l ? 1 : 0);
+            }
+            ESP_LOGI(TAG, "-------------------------");
           }
 
 
