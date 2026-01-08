@@ -157,19 +157,19 @@ script:
 
           for (int i = 0; i < 12; i++) {
             p0_sensors[i]->publish_state(id(mcp_p0_in).digital_read(i));
-            const bool hw = id(mcp_p0_in).digital_read(i);
-            p0_sensors[i]->publish_state(hw);
+            const bool i2c_state = id(mcp_p0_in).digital_read(i);
+            p0_sensors[i]->publish_state(i2c_state);
 
-            // Force HA light state to match real relay feedback even if there's no edge
-            if (hw) {
+            // Force esphome light state to match real relay feedback even if there's no edge
+            if (i2c_state) {
               if (!p0_lights[i]->current_values.is_on()) {
-                ESP_LOGI(TAG, "P0[%02d] hw=1 -> light ON (was OFF)", i+1);
+                ESP_LOGI(TAG, "[%s] i2c_state=1 -> esphome light ON (was OFF)", p0_lights[i]->get_name().c_str());
                 auto call = p0_lights[i]->turn_on();
                 call.perform();
               }
             } else {
               if (p0_lights[i]->current_values.is_on()) {
-                ESP_LOGI(TAG, "P0[%02d] hw=0 -> light OFF (was ON)", i+1);
+                ESP_LOGI(TAG, "[%s] i2c_state=1 -> esphome light OFF (was ON)", p0_lights[i]->get_name().c_str());
                 auto call = p0_lights[i]->turn_off();
                 call.perform();
               }
@@ -190,19 +190,19 @@ script:
             id(light_p1_13), id(light_p1_14), id(light_p1_15)
           };
           for (int i = 0; i < 15; i++) {
-            const bool hw = id(mcp_p1_in).digital_read(i);
-            p1_sensors[i]->publish_state(hw);
+            const bool i2c_state = id(mcp_p1_in).digital_read(i);
+            p1_sensors[i]->publish_state(i2c_state);
 
             // Force HA light state to match real relay feedback even if there's no edge
-            if (hw) {
+            if (i2c_state) {
               if (!p1_lights[i]->current_values.is_on()) {
-                ESP_LOGI(TAG, "P1[%02d] hw=1 -> light ON (was OFF)", i+1);
+                ESP_LOGI(TAG, "[%s] i2c_state=1 -> esphome light ON (was OFF)", p1_lights[i]->get_name().c_str());
                 auto call = p1_lights[i]->turn_on();
                 call.perform();
               }
             } else {
               if (p1_lights[i]->current_values.is_on()) {
-                ESP_LOGI(TAG, "P1[%02d] hw=0 -> light OFF (was ON)", i+1);
+                ESP_LOGI(TAG, "[%s] i2c_state=1 -> esphome light OFF (was ON)", p1_lights[i]->get_name().c_str());
                 auto call = p1_lights[i]->turn_off();
                 call.perform();
               }
@@ -213,18 +213,18 @@ script:
           cycles++;
           if (cycles >= 100) {
             cycles = 0;
-            ESP_LOGI(TAG, "---- FULL STATE DUMP ----");
+            ESP_LOGD(TAG, "---- FULL STATE DUMP ----");
             for (int i = 0; i < 12; i++) {
-              const bool hw = id(mcp_p0_in).digital_read(i);
-              const bool l  = p0_lights[i]->current_values.is_on();
-              ESP_LOGI(TAG, "P0[%02d] hw=%d light=%d", i+1, hw ? 1 : 0, l ? 1 : 0);
+              const bool i2c_state = id(mcp_p0_in).digital_read(i);
+              const bool esphome_light  = p0_lights[i]->current_values.is_on();
+              ESP_LOGD(TAG, "P0[%02d] i2c_state=%d light=%d - [%s]", i+1, i2c_state ? 1 : 0, esphome_light ? 1 : 0, p0_lights[i]->get_name().c_str());
             }
             for (int i = 0; i < 15; i++) {
-              const bool hw = id(mcp_p1_in).digital_read(i);
-              const bool l  = p1_lights[i]->current_values.is_on();
-              ESP_LOGI(TAG, "P1[%02d] hw=%d light=%d", i+1, hw ? 1 : 0, l ? 1 : 0);
+              const bool i2c_state = id(mcp_p1_in).digital_read(i);
+              const bool esphome_light  = p1_lights[i]->current_values.is_on();
+              ESP_LOGD(TAG, "P1[%02d] i2c_state=%d light=%d - [%s]", i+1, i2c_state ? 1 : 0, esphome_light ? 1 : 0, p1_lights[i]->get_name().c_str());
             }
-            ESP_LOGI(TAG, "-------------------------");
+            ESP_LOGD(TAG, "-------------------------");
           }
 
 
