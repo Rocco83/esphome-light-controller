@@ -71,6 +71,9 @@ ethernet:
 
 # Enable logging via UART
 logger:
+  # uncomment for i2c status etc
+  #level: DEBUG
+  level: INFO
 
 # Default HA integration, OTA updater and backup http web portal
 api:
@@ -107,6 +110,7 @@ i2c:
   sda: GPIO13
   scl: GPIO16
   scan: true
+  id: bus_i2c  # associate an ID
   # High frequency for better responsiveness
   frequency: 400kHz
   #frequency: 100kHz
@@ -209,9 +213,9 @@ script:
             }
           }
 
-          // Periodic full dump: every 100 cycles (~10s @ 100ms)
+          // Periodic full dump: every 600 cycles (~60s @ 100ms)
           cycles++;
-          if (cycles >= 100) {
+          if (cycles >= 600) {
             cycles = 0;
             ESP_LOGD(TAG, "---- FULL STATE DUMP ----");
             for (int i = 0; i < 12; i++) {
@@ -227,7 +231,6 @@ script:
             ESP_LOGD(TAG, "-------------------------");
           }
 
-
 # --- MANUAL POLLING ENGINE (The Core) ---
 # This component executes the lambda every 100ms.
 # It manually reads the hardware pins and pushes the state to the sensors.
@@ -235,6 +238,24 @@ interval:
   - interval: 100ms
     then:
       - script.execute: read_all_inputs
+# Secondo task: Debug I2C ogni 10s
+  - interval: 20s
+    then:
+      - lambda: |-
+          ESP_LOGD("debug_i2c", "--- Inizio Check I2C (0x20-0x23) ---");
+          for (uint8_t address = 0x20; address <= 0x23; address++) {
+
+            // CORREZIONE QUI: Usa .read(...) invece di .read_bytes(...)
+            // Passiamo nullptr e 0 perché vogliamo solo vedere se risponde (ping)
+            auto error = id(bus_i2c).read(address, nullptr, 0);
+
+            if (error == i2c::ERROR_OK) {
+              ESP_LOGD("debug_i2c", "Device 0x%02X: TROVATO", address);
+            } else {
+              ESP_LOGD("debug_i2c", "Device 0x%02X: -", address);
+            }
+          }
+          ESP_LOGD("debug_i2c", "--- Fine Check ---");
 
 # --- INTERRUPT WORKAROUND (The "Real-time" Trigger) ---
 # Since MCP23017 doesn't support int_pin natively, we use a GPIO
@@ -262,62 +283,62 @@ binary_sensor:
   # =======================================================================
   - platform: gpio
     id: p0_state_01
-    pin: { mcp23xxx: mcp_p0_in, number: 0, mode: INPUT_PULLUP }
+    pin: { mcp23xxx: mcp_p0_in, number: 0, mode: INPUT }
     on_state: { then: [{ if: { condition: { binary_sensor.is_on: p0_state_01 }, then: [light.turn_on: light_p0_01], else: [light.turn_off: light_p0_01] } }] }
 
   - platform: gpio
     id: p0_state_02
-    pin: { mcp23xxx: mcp_p0_in, number: 1, mode: INPUT_PULLUP }
+    pin: { mcp23xxx: mcp_p0_in, number: 1, mode: INPUT }
     on_state: { then: [{ if: { condition: { binary_sensor.is_on: p0_state_02 }, then: [light.turn_on: light_p0_02], else: [light.turn_off: light_p0_02] } }] }
 
   - platform: gpio
     id: p0_state_03
-    pin: { mcp23xxx: mcp_p0_in, number: 2, mode: INPUT_PULLUP }
+    pin: { mcp23xxx: mcp_p0_in, number: 2, mode: INPUT }
     on_state: { then: [{ if: { condition: { binary_sensor.is_on: p0_state_03 }, then: [light.turn_on: light_p0_03], else: [light.turn_off: light_p0_03] } }] }
 
   - platform: gpio
     id: p0_state_04
-    pin: { mcp23xxx: mcp_p0_in, number: 3, mode: INPUT_PULLUP }
+    pin: { mcp23xxx: mcp_p0_in, number: 3, mode: INPUT }
     on_state: { then: [{ if: { condition: { binary_sensor.is_on: p0_state_04 }, then: [light.turn_on: light_p0_04], else: [light.turn_off: light_p0_04] } }] }
 
   - platform: gpio
     id: p0_state_05
-    pin: { mcp23xxx: mcp_p0_in, number: 4, mode: INPUT_PULLUP }
+    pin: { mcp23xxx: mcp_p0_in, number: 4, mode: INPUT }
     on_state: { then: [{ if: { condition: { binary_sensor.is_on: p0_state_05 }, then: [light.turn_on: light_p0_05], else: [light.turn_off: light_p0_05] } }] }
 
   - platform: gpio
     id: p0_state_06
-    pin: { mcp23xxx: mcp_p0_in, number: 5, mode: INPUT_PULLUP }
+    pin: { mcp23xxx: mcp_p0_in, number: 5, mode: INPUT }
     on_state: { then: [{ if: { condition: { binary_sensor.is_on: p0_state_06 }, then: [light.turn_on: light_p0_06], else: [light.turn_off: light_p0_06] } }] }
 
   - platform: gpio
     id: p0_state_07
-    pin: { mcp23xxx: mcp_p0_in, number: 6, mode: INPUT_PULLUP }
+    pin: { mcp23xxx: mcp_p0_in, number: 6, mode: INPUT }
     on_state: { then: [{ if: { condition: { binary_sensor.is_on: p0_state_07 }, then: [light.turn_on: light_p0_07], else: [light.turn_off: light_p0_07] } }] }
 
   - platform: gpio
     id: p0_state_08
-    pin: { mcp23xxx: mcp_p0_in, number: 7, mode: INPUT_PULLUP }
+    pin: { mcp23xxx: mcp_p0_in, number: 7, mode: INPUT }
     on_state: { then: [{ if: { condition: { binary_sensor.is_on: p0_state_08 }, then: [light.turn_on: light_p0_08], else: [light.turn_off: light_p0_08] } }] }
 
   - platform: gpio
     id: p0_state_09
-    pin: { mcp23xxx: mcp_p0_in, number: 8, mode: INPUT_PULLUP }
+    pin: { mcp23xxx: mcp_p0_in, number: 8, mode: INPUT }
     on_state: { then: [{ if: { condition: { binary_sensor.is_on: p0_state_09 }, then: [light.turn_on: light_p0_09], else: [light.turn_off: light_p0_09] } }] }
 
   - platform: gpio
     id: p0_state_10
-    pin: { mcp23xxx: mcp_p0_in, number: 9, mode: INPUT_PULLUP }
+    pin: { mcp23xxx: mcp_p0_in, number: 9, mode: INPUT }
     on_state: { then: [{ if: { condition: { binary_sensor.is_on: p0_state_10 }, then: [light.turn_on: light_p0_10], else: [light.turn_off: light_p0_10] } }] }
 
   - platform: gpio
     id: p0_state_11
-    pin: { mcp23xxx: mcp_p0_in, number: 10, mode: INPUT_PULLUP }
+    pin: { mcp23xxx: mcp_p0_in, number: 10, mode: INPUT }
     on_state: { then: [{ if: { condition: { binary_sensor.is_on: p0_state_11 }, then: [light.turn_on: light_p0_11], else: [light.turn_off: light_p0_11] } }] }
 
   - platform: gpio
     id: p0_state_12
-    pin: { mcp23xxx: mcp_p0_in, number: 11, mode: INPUT_PULLUP }
+    pin: { mcp23xxx: mcp_p0_in, number: 11, mode: INPUT }
     on_state: { then: [{ if: { condition: { binary_sensor.is_on: p0_state_12 }, then: [light.turn_on: light_p0_12], else: [light.turn_off: light_p0_12] } }] }
 
   # =======================================================================
