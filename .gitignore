@@ -46,3 +46,4 @@ secrets.yaml
 
 # compiled files
 .esphome/
+.platformio/
