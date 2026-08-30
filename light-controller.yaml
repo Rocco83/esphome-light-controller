@@ -102,6 +102,61 @@ web_server:
 button:
   - platform: restart
     name: "ESPHome Restart"
+    id: btn_restart
+    entity_category: "config"
+    icon: "mdi:restart"
+    on_press:
+      then:
+        - lambda: |-
+            esp_ota_mark_app_valid_cancel_rollback();
+            ESP_LOGI("boot", "OTA marked valid before reboot");
+        - delay: 200ms
+        # This is the correct way to reboot via code
+        - lambda: 'App.safe_reboot();'
+
+  - platform: template
+    name: "Clear Stored States"
+    id: clear_states_button
+    icon: "mdi:database-remove"
+    entity_category: "config"
+    on_press:
+      then:
+        - lambda: |-
+            global_preferences->reset();
+            ESP_LOGI("custom", "NVM Memory Cleared! Restarting...");
+        - delay: 1s
+        # call the restart button, to consolidate the logic
+        - button.press: btn_restart
+
+
+  - platform: template
+    name: "Dump MCP 0x20"
+    entity_category: "diagnostic"
+    on_press:
+      - script.execute:
+          id: dump_mcp23017_registers
+          addr: 0x20
+  - platform: template
+    name: "Dump MCP 0x21"
+    entity_category: "diagnostic"
+    on_press:
+      - script.execute:
+          id: dump_mcp23017_registers
+          addr: 0x21
+  - platform: template
+    name: "Dump MCP 0x22"
+    entity_category: "diagnostic"
+    on_press:
+      - script.execute:
+          id: dump_mcp23017_registers
+          addr: 0x22
+  - platform: template
+    name: "Dump MCP 0x23"
+    entity_category: "diagnostic"
+    on_press:
+      - script.execute:
+          id: dump_mcp23017_registers
+          addr: 0x23
 
 # -------------------------------------------------------------------------
 # I2C BUS CONFIGURATION
@@ -230,6 +285,89 @@ script:
             }
             ESP_LOGD(TAG, "-------------------------");
           }
+
+  - id: dump_mcp23017_registers
+    mode: single
+    parameters:
+      addr: int
+    then:
+      - lambda: |-
+          const uint8_t mcp_addr = (uint8_t) addr;
+
+          // MCP23017 register map (BANK=0 default = ESPHome default)
+          struct Reg { const char* name; uint8_t addr_a; uint8_t addr_b; };
+          const Reg regs[] = {
+            { "IODIR",  0x00, 0x01 },  // 1 = input, 0 = output
+            { "IPOL",   0x02, 0x03 },  // 1 = inverted polarity in GPIO reg
+            { "GPINTEN",0x04, 0x05 },
+            { "DEFVAL", 0x06, 0x07 },
+            { "INTCON", 0x08, 0x09 },
+            { "IOCON",  0x0A, 0x0B },  // config (BANK, MIRROR, SEQOP...)
+            { "GPPU",   0x0C, 0x0D },  // 1 = pull-up enabled
+            { "INTF",   0x0E, 0x0F },
+            { "INTCAP", 0x10, 0x11 },
+            { "GPIO",   0x12, 0x13 },  // raw pin level seen by the chip
+            { "OLAT",   0x14, 0x15 },
+          };
+          const uint8_t n_regs = sizeof(regs) / sizeof(regs[0]);
+
+          // I2C bus shared by all MCPs
+          auto bus = id(bus_i2c);
+
+          // Helper: read a single 8-bit register from the MCP
+          auto read_reg = [&](uint8_t reg, uint8_t &out) -> bool {
+            esphome::i2c::I2CDevice dev;
+            dev.set_i2c_bus(bus);
+            dev.set_i2c_address(mcp_addr);
+            return dev.read_register(reg, &out, 1) == esphome::i2c::ERROR_OK;
+          };
+
+          // Helper: render a byte as MSB..LSB binary (pin7..pin0)
+          auto to_bin = [](uint8_t v, char *buf) {
+            for (int b = 0; b < 8; b++) buf[7-b] = ((v >> b) & 1) ? '1' : '0';
+            buf[8] = 0;
+          };
+
+          ESP_LOGI("mcp_dump", "########## MCP @ 0x%02X ##########", mcp_addr);
+
+          uint8_t gpio_a = 0, gpio_b = 0, ipol_a = 0, ipol_b = 0;
+          uint8_t iodir_a = 0, iodir_b = 0, gppu_a = 0, gppu_b = 0;
+
+          for (uint8_t r = 0; r < n_regs; r++) {
+            uint8_t va = 0, vb = 0;
+            bool oka = read_reg(regs[r].addr_a, va);
+            bool okb = read_reg(regs[r].addr_b, vb);
+            if (oka && okb) {
+              char ba[9], bb[9];
+              to_bin(va, ba); to_bin(vb, bb);
+              ESP_LOGI("mcp_dump", "  %-8s A=0x%02X (%s)  B=0x%02X (%s)",
+                       regs[r].name, va, ba, vb, bb);
+              if (regs[r].addr_a == 0x12) { gpio_a = va; gpio_b = vb; }
+              if (regs[r].addr_a == 0x02) { ipol_a = va; ipol_b = vb; }
+              if (regs[r].addr_a == 0x00) { iodir_a = va; iodir_b = vb; }
+              if (regs[r].addr_a == 0x0C) { gppu_a = va; gppu_b = vb; }
+            } else {
+              ESP_LOGW("mcp_dump", "  %-8s READ FAILED (a:%d b:%d)",
+                       regs[r].name, oka, okb);
+            }
+          }
+
+          ESP_LOGI("mcp_dump", "  --- per-pin (raw GPIO bit / IPOL / DIR / PU) ---");
+          for (uint8_t pin = 0; pin < 16; pin++) {
+            uint8_t bank_gpio = (pin < 8) ? gpio_a : gpio_b;
+            uint8_t bank_ipol = (pin < 8) ? ipol_a : ipol_b;
+            uint8_t bank_dir  = (pin < 8) ? iodir_a : iodir_b;
+            uint8_t bank_pu   = (pin < 8) ? gppu_a : gppu_b;
+            uint8_t shift = pin % 8;
+            uint8_t gbit = (bank_gpio >> shift) & 1;
+            uint8_t ibit = (bank_ipol >> shift) & 1;
+            uint8_t dbit = (bank_dir  >> shift) & 1;
+            uint8_t pbit = (bank_pu   >> shift) & 1;
+            ESP_LOGI("mcp_dump",
+              "  pin %2u: GPIOraw=%u  IPOL=%u  DIR=%s  PU=%u",
+              pin, gbit, ibit, dbit ? "in" : "out", pbit);
+          }
+          ESP_LOGI("mcp_dump", "########## END 0x%02X ##########", mcp_addr);
 
 # --- MANUAL POLLING ENGINE (The Core) ---
 # This component executes the lambda every 100ms.
