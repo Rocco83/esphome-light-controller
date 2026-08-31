@@ -3,33 +3,33 @@ esphome:
   friendly_name: "Centralina Luci"
   # Automatically add MAC suffix to the name to avoid conflicts
   name_add_mac_suffix: true
-  # Abilita gli interrupt hardware sui chip MCP all'avvio
+  # Enable hardware interrupts on the MCP chips at boot
   on_boot:
     - priority: 600 # Esegui dopo l'inizializzazione I2C
       then:
         - lambda: |-
-            // --- CONFIGURAZIONE REGISTRI MCP23017 ---
-            // Registri (BANK=0): GPINTENA=0x04, GPINTENB=0x05, IOCON=0x0A
-  
-            // Configura HUB P0 Input (0x21)
-            // 0xFF = Abilita interrupt su tutti gli 8 pin della porta
+            // --- MCP23017 REGISTER CONFIGURATION ---
+            // Registers (BANK=0): GPINTENA=0x04, GPINTENB=0x05, IOCON=0x0A
+
+            // Configure P0 Input HUB (0x21)
+            // 0xFF = Enable interrupt on all 8 pins of the port
             id(mcp_p0_in).write_byte(0x04, 0xFF); // GPINTENA
             id(mcp_p0_in).write_byte(0x05, 0xFF); // GPINTENB
-            // 0x42 = Bit 6 (MIRROR): Unisce INTA e INTB
+            // 0x42 = Bit 6 (MIRROR): Merges INTA and INTB
             //        Bit 1 (INTPOL): Active Low (Default)
             id(mcp_p0_in).write_byte(0x0A, 0x42); // IOCON
-  
-            // Configura HUB P1 Input (0x23)
+
+            // Configure P1 Input HUB (0x23)
             id(mcp_p1_in).write_byte(0x04, 0xFF); // GPINTENA
             id(mcp_p1_in).write_byte(0x05, 0xFF); // GPINTENB
             id(mcp_p1_in).write_byte(0x0A, 0x42); // IOCON
-#    - priority: -100  # molto tardi: così i componenti hanno già provato a inizializzarsi
+#    - priority: -100  # very late: components have already tried to initialize by now
 #      then:
 #        - delay: 60s
 #        - lambda: |-
 #            bool missing = false;
 #  
-#            // metti qui TUTTI i tuoi MCP
+#            // put ALL your MCPs here
 #            if (id(mcp_p0_out).is_failed()) missing = true;
 #            if (id(mcp_p0_in).is_failed()) missing = true;
 #            if (id(mcp_p1_out).is_failed()) missing = true;
@@ -52,6 +52,8 @@ esp32:
   board: esp32-poe-iso
   framework:
     type: esp-idf
+    advanced:
+      minimum_chip_revision: "3.0"
 
 ethernet:
   type: LAN8720
@@ -376,15 +378,15 @@ interval:
   - interval: 100ms
     then:
       - script.execute: read_all_inputs
-# Secondo task: Debug I2C ogni 10s
+# Second task: Debug I2C every 10s
   - interval: 20s
     then:
       - lambda: |-
           ESP_LOGD("debug_i2c", "--- Inizio Check I2C (0x20-0x23) ---");
           for (uint8_t address = 0x20; address <= 0x23; address++) {
 
-            // CORREZIONE QUI: Usa .read(...) invece di .read_bytes(...)
-            // Passiamo nullptr e 0 perché vogliamo solo vedere se risponde (ping)
+            // FIX HERE: Use .read(...) instead of .read_bytes(...)
+            // We pass nullptr and 0 because we only want to see if it responds (ping)
             auto error = id(bus_i2c).read(address, nullptr, 0);
 
             if (error == i2c::ERROR_OK) {
@@ -405,7 +407,7 @@ binary_sensor:
       number: GPIO5
       mode: INPUT_PULLUP
     internal: true
-    # Scatta quando l'MCP porta il pin a massa (Active Low)
+    # Fires when the MCP pulls the pin to ground (Active Low)
     filters:
       - invert:
       - delayed_off: 10ms # Minimum hardware debounce
@@ -422,61 +424,73 @@ binary_sensor:
   - platform: gpio
     id: p0_state_01
     pin: { mcp23xxx: mcp_p0_in, number: 0, mode: INPUT }
+    use_interrupt: false
     on_state: { then: [{ if: { condition: { binary_sensor.is_on: p0_state_01 }, then: [light.turn_on: light_p0_01], else: [light.turn_off: light_p0_01] } }] }
 
   - platform: gpio
     id: p0_state_02
     pin: { mcp23xxx: mcp_p0_in, number: 1, mode: INPUT }
+    use_interrupt: false
     on_state: { then: [{ if: { condition: { binary_sensor.is_on: p0_state_02 }, then: [light.turn_on: light_p0_02], else: [light.turn_off: light_p0_02] } }] }
 
   - platform: gpio
     id: p0_state_03
     pin: { mcp23xxx: mcp_p0_in, number: 2, mode: INPUT }
+    use_interrupt: false
     on_state: { then: [{ if: { condition: { binary_sensor.is_on: p0_state_03 }, then: [light.turn_on: light_p0_03], else: [light.turn_off: light_p0_03] } }] }
 
   - platform: gpio
     id: p0_state_04
     pin: { mcp23xxx: mcp_p0_in, number: 3, mode: INPUT }
+    use_interrupt: false
     on_state: { then: [{ if: { condition: { binary_sensor.is_on: p0_state_04 }, then: [light.turn_on: light_p0_04], else: [light.turn_off: light_p0_04] } }] }
 
   - platform: gpio
     id: p0_state_05
     pin: { mcp23xxx: mcp_p0_in, number: 4, mode: INPUT }
+    use_interrupt: false
     on_state: { then: [{ if: { condition: { binary_sensor.is_on: p0_state_05 }, then: [light.turn_on: light_p0_05], else: [light.turn_off: light_p0_05] } }] }
 
   - platform: gpio
     id: p0_state_06
     pin: { mcp23xxx: mcp_p0_in, number: 5, mode: INPUT }
+    use_interrupt: false
     on_state: { then: [{ if: { condition: { binary_sensor.is_on: p0_state_06 }, then: [light.turn_on: light_p0_06], else: [light.turn_off: light_p0_06] } }] }
 
   - platform: gpio
     id: p0_state_07
     pin: { mcp23xxx: mcp_p0_in, number: 6, mode: INPUT }
+    use_interrupt: false
     on_state: { then: [{ if: { condition: { binary_sensor.is_on: p0_state_07 }, then: [light.turn_on: light_p0_07], else: [light.turn_off: light_p0_07] } }] }
 
   - platform: gpio
     id: p0_state_08
     pin: { mcp23xxx: mcp_p0_in, number: 7, mode: INPUT }
+    use_interrupt: false
     on_state: { then: [{ if: { condition: { binary_sensor.is_on: p0_state_08 }, then: [light.turn_on: light_p0_08], else: [light.turn_off: light_p0_08] } }] }
 
   - platform: gpio
     id: p0_state_09
     pin: { mcp23xxx: mcp_p0_in, number: 8, mode: INPUT }
+    use_interrupt: false
     on_state: { then: [{ if: { condition: { binary_sensor.is_on: p0_state_09 }, then: [light.turn_on: light_p0_09], else: [light.turn_off: light_p0_09] } }] }
 
   - platform: gpio
     id: p0_state_10
     pin: { mcp23xxx: mcp_p0_in, number: 9, mode: INPUT }
+    use_interrupt: false
     on_state: { then: [{ if: { condition: { binary_sensor.is_on: p0_state_10 }, then: [light.turn_on: light_p0_10], else: [light.turn_off: light_p0_10] } }] }
 
   - platform: gpio
     id: p0_state_11
     pin: { mcp23xxx: mcp_p0_in, number: 10, mode: INPUT }
+    use_interrupt: false
     on_state: { then: [{ if: { condition: { binary_sensor.is_on: p0_state_11 }, then: [light.turn_on: light_p0_11], else: [light.turn_off: light_p0_11] } }] }
 
   - platform: gpio
     id: p0_state_12
     pin: { mcp23xxx: mcp_p0_in, number: 11, mode: INPUT }
+    use_interrupt: false
     on_state: { then: [{ if: { condition: { binary_sensor.is_on: p0_state_12 }, then: [light.turn_on: light_p0_12], else: [light.turn_off: light_p0_12] } }] }
 
   # =======================================================================
@@ -484,77 +498,92 @@ binary_sensor:
   # =======================================================================
   - platform: gpio
     id: p1_state_01
-    pin: { mcp23xxx: mcp_p1_in, number: 0, mode: INPUT_PULLUP }
+    pin: { mcp23xxx: mcp_p1_in, number: 0, mode: INPUT }
+    use_interrupt: false
     on_state: { then: [{ if: { condition: { binary_sensor.is_on: p1_state_01 }, then: [light.turn_on: light_p1_01], else: [light.turn_off: light_p1_01] } }] }
 
   - platform: gpio
     id: p1_state_02
-    pin: { mcp23xxx: mcp_p1_in, number: 1, mode: INPUT_PULLUP }
+    pin: { mcp23xxx: mcp_p1_in, number: 1, mode: INPUT }
+    use_interrupt: false
     on_state: { then: [{ if: { condition: { binary_sensor.is_on: p1_state_02 }, then: [light.turn_on: light_p1_02], else: [light.turn_off: light_p1_02] } }] }
 
   - platform: gpio
     id: p1_state_03
-    pin: { mcp23xxx: mcp_p1_in, number: 2, mode: INPUT_PULLUP }
+    pin: { mcp23xxx: mcp_p1_in, number: 2, mode: INPUT }
+    use_interrupt: false
     on_state: { then: [{ if: { condition: { binary_sensor.is_on: p1_state_03 }, then: [light.turn_on: light_p1_03], else: [light.turn_off: light_p1_03] } }] }
 
   - platform: gpio
     id: p1_state_04
-    pin: { mcp23xxx: mcp_p1_in, number: 3, mode: INPUT_PULLUP }
+    pin: { mcp23xxx: mcp_p1_in, number: 3, mode: INPUT }
+    use_interrupt: false
     on_state: { then: [{ if: { condition: { binary_sensor.is_on: p1_state_04 }, then: [light.turn_on: light_p1_04], else: [light.turn_off: light_p1_04] } }] }
 
   - platform: gpio
     id: p1_state_05
-    pin: { mcp23xxx: mcp_p1_in, number: 4, mode: INPUT_PULLUP }
+    pin: { mcp23xxx: mcp_p1_in, number: 4, mode: INPUT }
+    use_interrupt: false
     on_state: { then: [{ if: { condition: { binary_sensor.is_on: p1_state_05 }, then: [light.turn_on: light_p1_05], else: [light.turn_off: light_p1_05] } }] }
 
   - platform: gpio
     id: p1_state_06
-    pin: { mcp23xxx: mcp_p1_in, number: 5, mode: INPUT_PULLUP }
+    pin: { mcp23xxx: mcp_p1_in, number: 5, mode: INPUT }
+    use_interrupt: false
     on_state: { then: [{ if: { condition: { binary_sensor.is_on: p1_state_06 }, then: [light.turn_on: light_p1_06], else: [light.turn_off: light_p1_06] } }] }
 
   - platform: gpio
     id: p1_state_07
-    pin: { mcp23xxx: mcp_p1_in, number: 6, mode: INPUT_PULLUP }
+    pin: { mcp23xxx: mcp_p1_in, number: 6, mode: INPUT }
+    use_interrupt: false
     on_state: { then: [{ if: { condition: { binary_sensor.is_on: p1_state_07 }, then: [light.turn_on: light_p1_07], else: [light.turn_off: light_p1_07] } }] }
 
   - platform: gpio
     id: p1_state_08
-    pin: { mcp23xxx: mcp_p1_in, number: 7, mode: INPUT_PULLUP }
+    pin: { mcp23xxx: mcp_p1_in, number: 7, mode: INPUT }
+    use_interrupt: false
     on_state: { then: [{ if: { condition: { binary_sensor.is_on: p1_state_08 }, then: [light.turn_on: light_p1_08], else: [light.turn_off: light_p1_08] } }] }
 
   - platform: gpio
     id: p1_state_09
-    pin: { mcp23xxx: mcp_p1_in, number: 8, mode: INPUT_PULLUP }
+    pin: { mcp23xxx: mcp_p1_in, number: 8, mode: INPUT }
+    use_interrupt: false
     on_state: { then: [{ if: { condition: { binary_sensor.is_on: p1_state_09 }, then: [light.turn_on: light_p1_09], else: [light.turn_off: light_p1_09] } }] }
 
   - platform: gpio
     id: p1_state_10
-    pin: { mcp23xxx: mcp_p1_in, number: 9, mode: INPUT_PULLUP }
+    pin: { mcp23xxx: mcp_p1_in, number: 9, mode: INPUT }
+    use_interrupt: false
     on_state: { then: [{ if: { condition: { binary_sensor.is_on: p1_state_10 }, then: [light.turn_on: light_p1_10], else: [light.turn_off: light_p1_10] } }] }
 
   - platform: gpio
     id: p1_state_11
-    pin: { mcp23xxx: mcp_p1_in, number: 10, mode: INPUT_PULLUP }
+    pin: { mcp23xxx: mcp_p1_in, number: 10, mode: INPUT }
+    use_interrupt: false
     on_state: { then: [{ if: { condition: { binary_sensor.is_on: p1_state_11 }, then: [light.turn_on: light_p1_11], else: [light.turn_off: light_p1_11] } }] }
 
   - platform: gpio
     id: p1_state_12
-    pin: { mcp23xxx: mcp_p1_in, number: 11, mode: INPUT_PULLUP }
+    pin: { mcp23xxx: mcp_p1_in, number: 11, mode: INPUT }
+    use_interrupt: false
     on_state: { then: [{ if: { condition: { binary_sensor.is_on: p1_state_12 }, then: [light.turn_on: light_p1_12], else: [light.turn_off: light_p1_12] } }] }
 
   - platform: gpio
     id: p1_state_13
-    pin: { mcp23xxx: mcp_p1_in, number: 12, mode: INPUT_PULLUP }
+    pin: { mcp23xxx: mcp_p1_in, number: 12, mode: INPUT }
+    use_interrupt: false
     on_state: { then: [{ if: { condition: { binary_sensor.is_on: p1_state_13 }, then: [light.turn_on: light_p1_13], else: [light.turn_off: light_p1_13] } }] }
 
   - platform: gpio
     id: p1_state_14
-    pin: { mcp23xxx: mcp_p1_in, number: 13, mode: INPUT_PULLUP }
+    pin: { mcp23xxx: mcp_p1_in, number: 13, mode: INPUT }
+    use_interrupt: false
     on_state: { then: [{ if: { condition: { binary_sensor.is_on: p1_state_14 }, then: [light.turn_on: light_p1_14], else: [light.turn_off: light_p1_14] } }] }
 
   - platform: gpio
     id: p1_state_15
-    pin: { mcp23xxx: mcp_p1_in, number: 14, mode: INPUT_PULLUP }
+    pin: { mcp23xxx: mcp_p1_in, number: 14, mode: INPUT }
+    use_interrupt: false
     on_state: { then: [{ if: { condition: { binary_sensor.is_on: p1_state_15 }, then: [light.turn_on: light_p1_15], else: [light.turn_off: light_p1_15] } }] }
 
 # -------------------------------------------------------------------------
