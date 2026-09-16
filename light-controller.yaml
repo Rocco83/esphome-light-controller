@@ -5,7 +5,7 @@ esphome:
   name_add_mac_suffix: true
   # Enable hardware interrupts on the MCP chips at boot
   on_boot:
-    - priority: 600 # Esegui dopo l'inizializzazione I2C
+    - priority: 600 # Run after I2C initialization
       then:
         - lambda: |-
             // --- MCP23017 REGISTER CONFIGURATION ---
@@ -23,23 +23,6 @@ esphome:
             id(mcp_p1_in).write_byte(0x04, 0xFF); // GPINTENA
             id(mcp_p1_in).write_byte(0x05, 0xFF); // GPINTENB
             id(mcp_p1_in).write_byte(0x0A, 0x42); // IOCON
-#    - priority: -100  # very late: components have already tried to initialize by now
-#      then:
-#        - delay: 60s
-#        - lambda: |-
-#            bool missing = false;
-#  
-#            // put ALL your MCPs here
-#            if (id(mcp_p0_out).is_failed()) missing = true;
-#            if (id(mcp_p0_in).is_failed()) missing = true;
-#            if (id(mcp_p1_out).is_failed()) missing = true;
-#            if (id(mcp_p1_in).is_failed()) missing = true;
-#  
-#            if (missing) {
-#              ESP_LOGE("bootcheck", "MCP missing -> HARD reset");
-#              esp_restart(); // avoid a clean shutdown
-#            }
-
 
 safe_mode:
   boot_is_good_after: 2min   # must be > of delay + check
@@ -217,7 +200,6 @@ script:
           };
 
           for (int i = 0; i < 12; i++) {
-            p0_sensors[i]->publish_state(id(mcp_p0_in).digital_read(i));
             const bool i2c_state = id(mcp_p0_in).digital_read(i);
             p0_sensors[i]->publish_state(i2c_state);
 
@@ -230,7 +212,7 @@ script:
               }
             } else {
               if (p0_lights[i]->current_values.is_on()) {
-                ESP_LOGI(TAG, "[%s] i2c_state=1 -> esphome light OFF (was ON)", p0_lights[i]->get_name().c_str());
+                ESP_LOGI(TAG, "[%s] i2c_state=0 -> esphome light OFF (was ON)", p0_lights[i]->get_name().c_str());
                 auto call = p0_lights[i]->turn_off();
                 call.perform();
               }
@@ -263,7 +245,7 @@ script:
               }
             } else {
               if (p1_lights[i]->current_values.is_on()) {
-                ESP_LOGI(TAG, "[%s] i2c_state=1 -> esphome light OFF (was ON)", p1_lights[i]->get_name().c_str());
+                ESP_LOGI(TAG, "[%s] i2c_state=0 -> esphome light OFF (was ON)", p1_lights[i]->get_name().c_str());
                 auto call = p1_lights[i]->turn_off();
                 call.perform();
               }
@@ -382,7 +364,7 @@ interval:
   - interval: 20s
     then:
       - lambda: |-
-          ESP_LOGD("debug_i2c", "--- Inizio Check I2C (0x20-0x23) ---");
+          ESP_LOGD("debug_i2c", "--- Starting I2C check (0x20-0x23) ---");
           for (uint8_t address = 0x20; address <= 0x23; address++) {
 
             // FIX HERE: Use .read(...) instead of .read_bytes(...)
@@ -390,12 +372,12 @@ interval:
             auto error = id(bus_i2c).read(address, nullptr, 0);
 
             if (error == i2c::ERROR_OK) {
-              ESP_LOGD("debug_i2c", "Device 0x%02X: TROVATO", address);
+              ESP_LOGD("debug_i2c", "Device 0x%02X: FOUND", address);
             } else {
               ESP_LOGD("debug_i2c", "Device 0x%02X: -", address);
             }
           }
-          ESP_LOGD("debug_i2c", "--- Fine Check ---");
+          ESP_LOGD("debug_i2c", "--- Check complete ---");
 
 # --- INTERRUPT WORKAROUND (The "Real-time" Trigger) ---
 # Since MCP23017 doesn't support int_pin natively, we use a GPIO
