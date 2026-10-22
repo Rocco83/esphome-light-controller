@@ -1,133 +1,182 @@
-# Feedback Breakout Rev B
+# Feedback Breakout Rev C
 
 KiCad 9 projects for the 16-channel input feedback conditioning board — the manufactured
-replacement for the hand-soldered perfboard that sits between the H11AA1 optoisolator boards
-and the MCP23017 expanders.
+replacement for the hand-soldered perfboard between the H11AA1 optoisolator boards and the
+MCP23017 expanders.
 
-| Directory | Rail | Pull-down | LED series |
+| Directory | Build | Board | Notes |
 |---|---|---|---|
-| `feedback-breakout-5v/` | 5 V | 100k | 10k |
+| `feedback-breakout/` | through-hole | 160 × 34 mm | uses the parts already on hand |
+| `feedback-breakout-smd/` | 0805 / SOT-23 | 130 × 26 mm | green LEDs only; `bom.csv` + `cpl.csv` for an assembled quote |
 
-The 5 V rail is set by the opto boards' `+5VARD` output, so that is the only build that applies to
-this installation. For a system without those boards in front, the same artwork works at 3.3 V by
-fitting a 3k9 LED resistor instead of 10k — the pull-down and filter are unchanged.
-
-Built entirely from stock KiCad 9 libraries. The project carries its own `sym-lib-table` /
-`fp-lib-table`.
+Both are built entirely from stock KiCad 9 libraries and carry their own `sym-lib-table` /
+`fp-lib-table`, so they open without depending on a global symbol table.
 
 ## Where this board sits
 
 ```
-   12 V field side                                    5 V logic side
-                                               ┌──────────────── +5V
-RET+12_SIGn ─[2K7]─[RED LED]─┐                 │
-                          H11AA1 ──────────────┤ emitter
-GND_SIG ─────────────────────┘                 │
-                                          DIGn ─┬─ [10K] ── GND     (on the opto board)
-                                                ├─ BC337 ─[680]─[GRN LED]
-                                                │
-                                          ~10 m of small-gauge wire
-                                                │
-                                THIS BOARD ─────┼─ [100k] ── GND    fail-safe level
-                                                ├─ [10nF] ── GND    line filter
-                                                ├─ [10k] ─ [LED] ── GND   indicator
-                                                ├─ test pad
-                                                └─ MCP23017 input
+   12 V field side                              5 V logic side (opto board)
+RET+12_SIGn ─[2K7]─[RED]─┐                  ┌──────── +5V
+                      H11AA1 ───────────────┤ emitter
+GND_SIG ─────────────────┘                  │
+                                       DIGn ─┬─ [10K] ── GND
+                                             ├─ BC337 ─[680]─[GRN]
+                                             │
+                                       ~10 m of small-gauge wire
+                                             │
+                          THIS BOARD ────────┼─ [100k] ─────────── GND   fail-safe level
+                                             ├─ [10nF] ─────────── GND   line filter
+                                             ├─ [100k] ─ Q base          indicator driver
+                                             ├─ test pad
+                                             └─ MCP23017 input
+
+                          indicator:  VCC ─[RE]─[LED]─ collector, emitter ─ GND
 ```
 
-The opto board already provides a 10k pull-down and two indicator LEDs per channel (red on the
-field side, green buffered by a BC337). This board adds the line filtering, a fail-safe level,
-a probe point, and a third indicator at the expander end.
-
-## Why the pull-down is 100k, not 10k
+## Why the indicator uses a transistor
 
 The H11AA1 output is an emitter follower — a *current* source limited by LED drive × CTR, not a
-stiff voltage source. Measured from the Eagle design:
+stiff voltage source. From the opto board's Eagle design: 3.24 mA through the opto LED, and at the
+datasheet minimum CTR of 20 % that leaves **0.66 mA** available at the node.
+
+| Branch | Old perfboard | LED direct | **This board** |
+|---|---:|---:|---:|
+| Opto board 10k pull-down | 0.470 | 0.470 | 0.470 |
+| Opto board BC337 base | 0.014 | 0.014 | 0.014 |
+| This board's pull-down | 0.470 (10k) | 0.047 (100k) | 0.047 (100k) |
+| This board's LED branch | — | 0.368 | **0.040** |
+| MCP23017 input | 0.001 | 0.001 | 0.001 |
+| **Total drawn from the node** | **0.955 mA** | **0.900 mA** | **0.572 mA** |
+| vs 0.66 mA available | over | over | **fits** |
+
+A common-emitter stage takes its LED current from the rail through the collector and only ~40 µA
+of base current from the node. That is what allows an indicator *and* a lower node load than the
+board has today.
+
+The opto board's own BC337 cannot serve this purpose: its emitter goes straight to its own LED and
+never reaches the connector, and it is 10 m away. A follower buffers where it sits.
+
+> **Note.** Today's board is already over budget at 0.955 mA against a worst-case 0.66 mA — a
+> plausible cause of the one channel that reads stuck LOW. The 0.66 mA figure uses the datasheet
+> minimum CTR at I<sub>F</sub> = 10 mA while these optos run at 3.3 mA, where it is unspecified;
+> real parts are usually better, which is why 15 of 16 channels work today. Use the test pads to
+> measure the node against the 4.0 V threshold.
+
+## Rail-generic
+
+A common emitter sets the LED current from the rail, not from the node, so the same board works on
+either rail with one value change:
+
+| Rail | RB | RE | LED current | Base current |
+|---|---|---|---:|---:|
+| 5 V | 100k | **1k** | 2.60 mA | 40 µA |
+| 3.3 V | 100k | **470R** | 1.91 mA | 23 µA |
+
+An emitter *follower* would not survive this: at 3.3 V its emitter reaches only 2.3 V against a
+2.2 V green LED. Note also that **blue LEDs (Vf ≈ 3.1 V) will not light on a 3.3 V rail at all**,
+and at 5 V they run dimmer than green for the same RE.
+
+## No ground pour
+
+GND is an ordinary 54-pad net on both boards — **no zones, no stitching vias** — to be routed by
+hand. This is deliberate. The two mechanisms a pour would help do not apply at this scale:
 
 | | |
-|---|---:|
-| Opto LED current: (12 − 1.9 − 1.35) / 2K7 | 3.24 mA |
-| H11AA1 CTR, datasheet minimum | 20 % |
-| Worst-case collector current available | 0.65 mA |
+|---|---|
+| Filter integrity | The node sees a 9.09 kΩ source (100k ∥ the opto board's 10k) into 10 nF, cutoff 1.75 kHz. A 160 mm return track is ~160 nH → **0.002 Ω at the cutoff**, 0.00002 % of the source impedance. Even at 100 MHz it is 1.1 %. |
+| Shared-impedance offset | All 16 LEDs lit is 41.6 mA through ~80 mΩ of 1 mm track → **3.3 mV**, 0.08 % of the 4.0 V threshold. |
 
-A 10k pull-down here would sit in **parallel** with the opto board's 10k, halving it to 5k:
+The usual reasons for a plane are absent too: no ns-edge digital (state changes at human speed,
+100 ms poll), no µV analog, no radiated-emissions requirement, and no surge role — the H11AA1
+provides galvanic isolation.
 
-| Configuration | Effective pull-down | Node load |
-|---|---:|---:|
-| Old perfboard (10k, no LED) | 5.00k | 0.97 mA |
-| **This board (100k, LED via 10k)** | **9.09k** | **0.83 mA** |
-| 100k, LED via 6k8 (brighter) | 9.09k | 0.96 mA |
-| 10k + LED via 3k3 | 5.00k | 1.82 mA ✗ |
-
-100k frees more current than the LED consumes, so every channel gets **more** margin than it has
-today while still gaining an indicator. Swap the LED resistor to 6k8 for a brighter indication at
-the old loading level.
-
-Keeping 100k also preserves a defined level if the 10 m run ever opens — the channel reads OFF
-rather than floating high.
-
-### No transistor buffer
-
-The textbook fix for the LED load is a BC337 emitter follower, as the opto board does. Sixteen
-TO-92 packages are 26 mm² each and push the board to **97 % courtyard fill** — not routable on
-2 layers at 80 × 20 mm. Sizing the LED resistor achieves the same end within the area budget.
+The trade-off, accepted knowingly: removing the pour *adds* routing work rather than removing it.
+GND is the largest net on the board at 54 pads.
 
 ## Specification
 
-- **Board** 80.00 × 20.00 mm, 2 layer, 1.6 mm, all through-hole
-- **Mounting** 2 × M3, ⌀3.2 mm non-plated, 68.58 mm apart, centred both axes
-- **Connectors** J1 (IN, from opto boards) and J2 (OUT, to MCP23017) — 2×10, 2.54 mm, odd/even
-- **Per channel** 100k pull-down, 10 nF filter, 1.8 mm LED + series resistor, 1 mm test pad
-- **84 footprints** — 64 passives/LEDs, 16 test pads, 2 connectors, 2 mounting holes
+- 2 layer, 1.6 mm, all through-hole (or 0805/SOT-23 for the SMD variant)
+- **Mounting** 2 × M3, ⌀3.2 mm non-plated, **68.58 mm apart, centred both axes**
+- **Connectors** 4 × 1×10, 2.54 mm — `JINA`/`JINB` on the top edge, `JOUTA`/`JOUTB` on the bottom,
+  banks side by side so each channel's IN and OUT pins are vertically aligned
+- **Per channel** 100k pull-down, 10 nF filter, 100k base resistor, transistor, RE, LED, test pad
+- **Test points** 16 channel pads plus VCC and GND pads at each end
+- **120 footprints**, 66 nets
 
-### Pinout — J1 and J2 identical
+### Header pinout — all four identical
 
-| Position | Row A pin | Net | Row B pin | Net |
-|---:|---:|---|---:|---|
-| 1 | 1 | VCC | 2 | VCC |
-| 2 | 3 | GND | 4 | GND |
-| 3–10 | 5,7,…,19 | CH_A0…CH_A7 | 6,8,…,20 | CH_B0…CH_B7 |
+| Pin | Net |
+|---:|---|
+| 1 | VCC |
+| 2 | GND |
+| 3–10 | CH0–CH7 of that bank |
 
-`CH_A0..A7` → MCP23017 GPA0–7, `CH_B0..B7` → GPB0–7.
+`J*A` → MCP23017 GPA0–7, `J*B` → GPB0–7.
 
-Reference designators are on F.Fab, not silkscreen — at 2.15 mm pitch there is no room for
-readable silk text.
+### Parts
 
-## Connector plating matters here
+| Ref | Value | THT footprint | SMD footprint |
+|---|---|---|---|
+| R, RB | 100k | `R_Axial_DIN0204_L3.6mm_D1.6mm_P2.54mm_Vertical` | `R_0805_2012Metric` |
+| RE | 1k (5 V) / 470R (3V3) | same | same |
+| C | 10 nF | `C_Disc_D3.0mm_W1.6mm_P2.50mm` | `C_0805_2012Metric` |
+| Q | BC337 (C-B-E) / **BC817-40 (B-E-C)** | `TO-92_Inline` | `SOT-23` |
+| D | green LED | `LED_D1.8mm_W3.3mm_H2.4mm` | `LED_0805_2012Metric` |
+| TP | — | `TestPoint_THTPad_D1.5mm_Drill0.7mm` | same |
+| J | 1×10 | `PinHeader_1x10_P2.54mm_Vertical` | same |
 
-At ~0.83 mA these are **dry-circuit** contacts, far below the ~10 mA that reliably breaks through
-oxide films on tin plating. Low-current signal contacts are exactly where fretting corrosion shows
-up as intermittent, channel-specific faults — which is what the seven stuck-high channels looked
-like. Specify **gold-plated** contacts on both the header and the mating connector, and prefer a
-keyed, latching shroud so the housing cannot walk out or seat one row off.
+**The transistor pinout differs between the two builds** — BC337 in TO-92 is C-B-E, BC817 in
+SOT-23 is B-E-C. The boards wire them accordingly; do not cross-substitute.
 
-Lowering the load from 0.97 mA to 0.83 mA does not change this — both are well below the wetting
-threshold, so plating is the fix, not current.
+The THT resistor footprint suits both a generic 1/6 W (3.2 × 1.8 mm) and the TE CFR16 series
+(3.5 × 1.85 mm, 0.25 W) — interchangeable here, both mounted **vertically**. A 6.3 mm DIN0207 body
+will *not* fit. Dissipation is under 1.2 mW worst case, so 1/6 W has ~145× margin.
 
-## The 10 m run
+Reference designators are on F.Fab, not silkscreen — no room at this density. The rail-dependent
+value is called out on both silkscreen layers.
 
-- Wire resistance (~3 Ω round trip on thin wire) is negligible against a 9 kΩ source.
-- Line capacitance is roughly 0.5–1 nF over 10 m; the 10 nF swamps it and sets the filter.
-- Filter time constant: 9.09k × 10 nF ≈ **91 µs** — far faster than the 100 ms firmware poll, so
-  it costs no responsiveness while still rejecting pickup.
+## BOM for 2 boards
 
-## Verification
+| Part | Qty | |
+|---|---:|---|
+| 100k (R + RB) | 64 | |
+| **1k (RE)** | **32** | needed for the 5 V build |
+| 10 nF | 32 | |
+| BC337 / BC817-40 | 32 | |
+| green LED | 32 | |
+| 1×10 header | 8 | |
 
-Checked with KiCad 9.0.2 itself:
+For the SMD variant, `bom.csv` and `cpl.csv` are in the format an assembly house expects:
+**96 SMD placements per board across 5 unique parts**, with the 4 headers and 20 test pads left
+as hand-soldered through-hole.
 
-| Check | Result |
-|---|---|
-| `kicad-cli sch erc` | **0 violations** |
-| `kicad-cli pcb drc` | **0 violations** |
-| Schematic ↔ PCB netlist | **identical** — 34 nets, same membership |
-| Every `CH_*` net | exactly 6 nodes (J1, J2, R, C, LED anode, TP) |
+## Status
 
-DRC also reports 150 unconnected items — that is the ratsnest. **The board is placed and netlisted
-but not routed.** Open it in pcbnew and route, or run an autorouter.
+| Check | THT | SMD |
+|---|---|---|
+| `kicad-cli sch erc` | **0 violations** | **0 violations** |
+| Schematic ↔ PCB netlist | **identical**, 66 nets | **identical**, 66 nets |
+| Every `CH_*` net | 6 nodes (JIN, JOUT, R, C, RB, TP) | same |
+| `kicad-cli pcb drc` | 15 violations | 21 violations |
+| Unconnected | 202 | 202 |
+
+**Open items, both deliberate:**
+
+1. **The M3 holes overlap four channels** — 3, 4, 11, 12 on the THT board and 2, 3, 11, 12 on the
+   SMD one. At 68.58 mm spacing they land inside the component band; the spacing was kept to match
+   the existing standoffs, and the placement around them is to be adjusted by hand. Every DRC
+   violation names `H1`, `H2`, or one of the parts sitting on them.
+2. **Not routed.** The 202 unconnected items are the ratsnest, including the 53 GND connections.
+
+## Connector plating
+
+At ~0.57 mA these are dry-circuit contacts, far below the ~10 mA that reliably breaks through oxide
+on tin plating — the regime where fretting corrosion appears as intermittent, channel-specific
+faults, which is what the seven stuck-high channels looked like. Specify **gold-plated** contacts on
+both the header and the mating connector.
 
 ## Source hardware
 
-Values above are read from the Eagle project for the optoisolator board
-(`LightRetaggioSchema`, 2020-04-23): 8 channels, H11AA1 AC-input optocouplers (drawn with an
-IL250 deviceset), 2K7 field resistors, 10K pull-downs, BC337 + 680R LED drivers, manual test
-buttons SW1–SW8, and no capacitors anywhere on the board.
+Values above are read from the Eagle project for the optoisolator board (`LightRetaggioSchema`,
+2020-04-23): 8 channels, H11AA1 AC-input optocouplers, 2K7 field resistors, 10K pull-downs,
+BC337 + 680R LED drivers, manual test buttons SW1–SW8, and no capacitors anywhere on the board.

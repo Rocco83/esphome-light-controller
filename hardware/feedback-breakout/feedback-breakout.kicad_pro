@@ -13,17 +13,17 @@
     "pinned_symbol_libs": []
   },
   "meta": {
-    "filename": "feedback-breakout-5v.kicad_pro",
+    "filename": "feedback-breakout.kicad_pro",
     "version": 3
   },
   "net_settings": {
     "classes": [
       {
         "name": "Default",
-        "clearance": 0.25,
-        "track_width": 0.35,
-        "via_diameter": 0.7,
-        "via_drill": 0.35
+        "clearance": 0.2,
+        "track_width": 0.25,
+        "via_diameter": 0.8,
+        "via_drill": 0.4
       }
     ]
   },
